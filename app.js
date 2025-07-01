@@ -4,6 +4,7 @@ class NestDataViewer {
         this.filteredData = [];
         this.charts = {};
         this.temperatureUnit = 'F'; // Default to Fahrenheit
+        this.runtimeAggregation = '15min'; // Default aggregation
         this.initializeEventListeners();
     }
 
@@ -40,6 +41,17 @@ class NestDataViewer {
             button.addEventListener('click', (event) => {
                 const days = parseInt(event.target.getAttribute('data-days'));
                 this.applyQuickFilter(days);
+            });
+        });
+
+        // Runtime aggregation listeners
+        const runtimeAggInputs = document.querySelectorAll('input[name="runtimeAggregation"]');
+        runtimeAggInputs.forEach(input => {
+            input.addEventListener('change', (event) => {
+                this.runtimeAggregation = event.target.value;
+                if (this.data.length > 0) {
+                    this.createCharts();
+                }
             });
         });
     }
@@ -269,20 +281,35 @@ class NestDataViewer {
         });
 
         // Runtime Chart
+        const runtimeData = timeSeriesData.map(d => ({
+            x: d.x,
+            coolingTime: d.coolingTime,
+            heatingTime: d.heatingTime
+        }));
+        
+        const aggregatedRuntimeData = this.aggregateRuntimeData(runtimeData, this.runtimeAggregation);
+        const runtimeLabel = this.getRuntimeChartLabel();
+        
         this.charts.runtime = new Chart(document.getElementById('runtimeChart'), {
             type: 'bar',
             data: {
                 datasets: [
                     {
-                        label: 'Cooling Time (minutes)',
-                        data: timeSeriesData.map(d => ({ x: d.x, y: d.coolingTime })),
+                        label: `Cooling Time (${this.runtimeAggregation === '15min' ? 'minutes' : 'hours'})`,
+                        data: aggregatedRuntimeData.map(d => ({ 
+                            x: d.x, 
+                            y: this.convertRuntimeForDisplay(d.coolingTime, this.runtimeAggregation)
+                        })),
                         backgroundColor: 'rgba(69, 183, 209, 0.7)',
                         borderColor: '#45b7d1',
                         borderWidth: 1
                     },
                     {
-                        label: 'Heating Time (minutes)',
-                        data: timeSeriesData.map(d => ({ x: d.x, y: d.heatingTime })),
+                        label: `Heating Time (${this.runtimeAggregation === '15min' ? 'minutes' : 'hours'})`,
+                        data: aggregatedRuntimeData.map(d => ({ 
+                            x: d.x, 
+                            y: this.convertRuntimeForDisplay(d.heatingTime, this.runtimeAggregation)
+                        })),
                         backgroundColor: 'rgba(243, 156, 18, 0.7)',
                         borderColor: '#f39c12',
                         borderWidth: 1
@@ -290,20 +317,100 @@ class NestDataViewer {
                 ]
             },
             options: {
-                ...this.getCommonChartOptions('Runtime (minutes)'),
+                ...this.getCommonChartOptions(runtimeLabel),
                 scales: {
-                    ...this.getCommonChartOptions('Runtime (minutes)').scales,
+                    ...this.getCommonChartOptions(runtimeLabel).scales,
                     x: {
-                        ...this.getCommonChartOptions('Runtime (minutes)').scales.x,
+                        ...this.getCommonChartOptions(runtimeLabel).scales.x,
                         stacked: true
                     },
                     y: {
-                        ...this.getCommonChartOptions('Runtime (minutes)').scales.y,
+                        ...this.getCommonChartOptions(runtimeLabel).scales.y,
                         stacked: true
                     }
                 }
             }
         });
+    }
+
+    aggregateRuntimeData(data, aggregationType) {
+        if (aggregationType === '15min') {
+            // Return original data for 15-minute intervals
+            return data.map(d => ({
+                x: d.x,
+                coolingTime: d.coolingTime,
+                heatingTime: d.heatingTime
+            }));
+        }
+
+        const aggregated = new Map();
+        
+        data.forEach(d => {
+            let key;
+            const date = new Date(d.x);
+            
+            switch (aggregationType) {
+                case 'hourly':
+                    // Round to nearest hour
+                    date.setMinutes(0, 0, 0);
+                    key = date.getTime();
+                    break;
+                case 'daily':
+                    // Round to start of day
+                    date.setHours(0, 0, 0, 0);
+                    key = date.getTime();
+                    break;
+                case 'weekly':
+                    // Round to start of week (Sunday)
+                    const dayOfWeek = date.getDay();
+                    date.setDate(date.getDate() - dayOfWeek);
+                    date.setHours(0, 0, 0, 0);
+                    key = date.getTime();
+                    break;
+                default:
+                    key = d.x.getTime();
+            }
+            
+            if (!aggregated.has(key)) {
+                aggregated.set(key, {
+                    x: new Date(key),
+                    coolingTime: 0,
+                    heatingTime: 0,
+                    count: 0
+                });
+            }
+            
+            const entry = aggregated.get(key);
+            entry.coolingTime += d.coolingTime;
+            entry.heatingTime += d.heatingTime;
+            entry.count++;
+        });
+        
+        return Array.from(aggregated.values()).sort((a, b) => a.x - b.x);
+    }
+
+    getRuntimeChartLabel() {
+        switch (this.runtimeAggregation) {
+            case 'hourly':
+                return 'Runtime (hours)';
+            case 'daily':
+                return 'Runtime (hours)';
+            case 'weekly':
+                return 'Runtime (hours)';
+            default:
+                return 'Runtime (minutes)';
+        }
+    }
+
+    convertRuntimeForDisplay(minutes, aggregationType) {
+        switch (aggregationType) {
+            case 'hourly':
+            case 'daily':
+            case 'weekly':
+                return minutes / 60; // Convert to hours
+            default:
+                return minutes; // Keep as minutes
+        }
     }
 
     // Temperature conversion utilities

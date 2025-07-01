@@ -327,6 +327,51 @@
             color: #667eea;
             transform: translateY(-2px);
         }
+
+        .chart-controls {
+            margin-bottom: 20px;
+            text-align: center;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 10px;
+        }
+
+        .control-label {
+            display: inline-block;
+            margin-right: 15px;
+            font-weight: 500;
+            color: #333;
+            font-size: 0.9rem;
+        }
+
+        .aggregation-toggle {
+            display: inline-flex;
+            background: white;
+            border-radius: 20px;
+            padding: 3px;
+            gap: 3px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .aggregation-toggle input[type="radio"] {
+            display: none;
+        }
+
+        .aggregation-toggle label {
+            padding: 6px 15px;
+            border-radius: 17px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-weight: 500;
+            color: #666;
+            font-size: 0.85rem;
+        }
+
+        .aggregation-toggle input[type="radio"]:checked + label {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            box-shadow: 0 2px 6px rgba(102, 126, 234, 0.3);
+        }
     </style>
 </head>
 <body>
@@ -430,6 +475,19 @@
 
             <div class="chart-container">
                 <h3 class="chart-title">⚡ HVAC Runtime</h3>
+                <div class="chart-controls">
+                    <label class="control-label">Aggregate by:</label>
+                    <div class="aggregation-toggle">
+                        <input type="radio" id="runtime-15min" name="runtimeAggregation" value="15min" checked>
+                        <label for="runtime-15min">15 min</label>
+                        <input type="radio" id="runtime-hourly" name="runtimeAggregation" value="hourly">
+                        <label for="runtime-hourly">Hourly</label>
+                        <input type="radio" id="runtime-daily" name="runtimeAggregation" value="daily">
+                        <label for="runtime-daily">Daily</label>
+                        <input type="radio" id="runtime-weekly" name="runtimeAggregation" value="weekly">
+                        <label for="runtime-weekly">Weekly</label>
+                    </div>
+                </div>
                 <div class="chart-wrapper">
                     <canvas id="runtimeChart"></canvas>
                 </div>
