@@ -492,6 +492,26 @@
                     <canvas id="runtimeChart"></canvas>
                 </div>
             </div>
+
+            <div class="chart-container">
+                <h3 class="chart-title">🌡️❄️ Outdoor Temperature vs HVAC Runtime</h3>
+                <div class="chart-controls">
+                    <label class="control-label">Aggregate by:</label>
+                    <div class="aggregation-toggle">
+                        <input type="radio" id="correlation-15min" name="correlationAggregation" value="15min" checked>
+                        <label for="correlation-15min">15 min</label>
+                        <input type="radio" id="correlation-hourly" name="correlationAggregation" value="hourly">
+                        <label for="correlation-hourly">Hourly</label>
+                        <input type="radio" id="correlation-daily" name="correlationAggregation" value="daily">
+                        <label for="correlation-daily">Daily</label>
+                        <input type="radio" id="correlation-weekly" name="correlationAggregation" value="weekly">
+                        <label for="correlation-weekly">Weekly</label>
+                    </div>
+                </div>
+                <div class="chart-wrapper">
+                    <canvas id="correlationChart"></canvas>
+                </div>
+            </div>
         </div>
     </div>
 

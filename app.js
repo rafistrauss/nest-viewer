@@ -5,6 +5,7 @@ class NestDataViewer {
         this.charts = {};
         this.temperatureUnit = 'F'; // Default to Fahrenheit
         this.runtimeAggregation = '15min'; // Default aggregation
+        this.correlationAggregation = '15min'; // Default aggregation for correlation chart
         this.initializeEventListeners();
     }
 
@@ -49,6 +50,17 @@ class NestDataViewer {
         runtimeAggInputs.forEach(input => {
             input.addEventListener('change', (event) => {
                 this.runtimeAggregation = event.target.value;
+                if (this.data.length > 0) {
+                    this.createCharts();
+                }
+            });
+        });
+
+        // Correlation aggregation listeners
+        const correlationAggInputs = document.querySelectorAll('input[name="correlationAggregation"]');
+        correlationAggInputs.forEach(input => {
+            input.addEventListener('change', (event) => {
+                this.correlationAggregation = event.target.value;
                 if (this.data.length > 0) {
                     this.createCharts();
                 }
@@ -331,6 +343,155 @@ class NestDataViewer {
                 }
             }
         });
+        
+        // Outdoor Temperature vs HVAC Runtime Correlation Chart
+        const correlationData = timeSeriesData.map(d => ({
+            x: d.x,
+            outdoorTemp: d.outdoorTemp,
+            coolingTime: d.coolingTime,
+            heatingTime: d.heatingTime
+        }));
+        
+        const aggregatedCorrelationData = this.aggregateTemperatureData(correlationData, this.correlationAggregation);
+        const correlationRuntimeLabel = this.getRuntimeChartLabel();
+        const correlationTempLabel = `Temperature (${this.temperatureUnit === 'F' ? '°F' : '°C'})`;
+        
+        this.charts.correlation = new Chart(document.getElementById('correlationChart'), {
+            type: 'line',
+            data: {
+                datasets: [
+                    {
+                        label: 'Outdoor Temperature',
+                        data: aggregatedCorrelationData.map(d => ({ x: d.x, y: d.outdoorTemp })),
+                        borderColor: '#ff9500',
+                        backgroundColor: 'rgba(255, 149, 0, 0.1)',
+                        borderWidth: 3,
+                        fill: false,
+                        tension: 0.3,
+                        pointRadius: 0,
+                        pointHoverRadius: 4,
+                        yAxisID: 'y'
+                    },
+                    {
+                        label: `Total HVAC Runtime (${this.correlationAggregation === '15min' ? 'minutes' : 'hours'})`,
+                        data: aggregatedCorrelationData.map(d => ({ 
+                            x: d.x, 
+                            y: this.convertRuntimeForDisplay(d.coolingTime + d.heatingTime, this.correlationAggregation)
+                        })),
+                        type: 'bar',
+                        backgroundColor: 'rgba(155, 89, 182, 0.6)',
+                        borderColor: '#9b59b6',
+                        borderWidth: 1,
+                        yAxisID: 'y1'
+                    },
+                    {
+                        label: `Cooling Time (${this.correlationAggregation === '15min' ? 'minutes' : 'hours'})`,
+                        data: aggregatedCorrelationData.map(d => ({ 
+                            x: d.x, 
+                            y: this.convertRuntimeForDisplay(d.coolingTime, this.correlationAggregation)
+                        })),
+                        type: 'bar',
+                        backgroundColor: 'rgba(69, 183, 209, 0.6)',
+                        borderColor: '#45b7d1',
+                        borderWidth: 1,
+                        yAxisID: 'y1'
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: {
+                    intersect: false,
+                    mode: 'index'
+                },
+                plugins: {
+                    legend: {
+                        position: 'top',
+                        labels: {
+                            usePointStyle: true,
+                            padding: 20
+                        }
+                    },
+                    tooltip: {
+                        backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                        titleColor: 'white',
+                        bodyColor: 'white',
+                        borderColor: 'rgba(255, 255, 255, 0.2)',
+                        borderWidth: 1,
+                        cornerRadius: 8,
+                        displayColors: true,
+                        callbacks: {
+                            title: function(tooltipItems) {
+                                const date = new Date(tooltipItems[0].parsed.x);
+                                return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        type: 'time',
+                        time: {
+                            displayFormats: {
+                                hour: 'MMM dd HH:mm',
+                                day: 'MMM dd',
+                                week: 'MMM dd',
+                                month: 'MMM yyyy'
+                            }
+                        },
+                        grid: {
+                            color: 'rgba(0, 0, 0, 0.1)'
+                        },
+                        ticks: {
+                            maxTicksLimit: 10
+                        }
+                    },
+                    y: {
+                        type: 'linear',
+                        display: true,
+                        position: 'left',
+                        beginAtZero: false,
+                        grid: {
+                            color: 'rgba(0, 0, 0, 0.1)'
+                        },
+                        title: {
+                            display: true,
+                            text: correlationTempLabel,
+                            font: {
+                                size: 12,
+                                weight: 'bold'
+                            },
+                            color: '#ff9500'
+                        },
+                        ticks: {
+                            color: '#ff9500'
+                        }
+                    },
+                    y1: {
+                        type: 'linear',
+                        display: true,
+                        position: 'right',
+                        beginAtZero: true,
+                        grid: {
+                            drawOnChartArea: false,
+                        },
+                        title: {
+                            display: true,
+                            text: correlationRuntimeLabel,
+                            font: {
+                                size: 12,
+                                weight: 'bold'
+                            },
+                            color: '#9b59b6'
+                        },
+                        ticks: {
+                            color: '#9b59b6'
+                        }
+                    }
+                }
+            }
+        });
     }
 
     aggregateRuntimeData(data, aggregationType) {
@@ -387,6 +548,71 @@ class NestDataViewer {
         });
         
         return Array.from(aggregated.values()).sort((a, b) => a.x - b.x);
+    }
+
+    aggregateTemperatureData(data, aggregationType) {
+        if (aggregationType === '15min') {
+            // Return original data for 15-minute intervals
+            return data.map(d => ({
+                x: d.x,
+                outdoorTemp: d.outdoorTemp,
+                coolingTime: d.coolingTime,
+                heatingTime: d.heatingTime
+            }));
+        }
+
+        const aggregated = new Map();
+        
+        data.forEach(d => {
+            let key;
+            const date = new Date(d.x);
+            
+            switch (aggregationType) {
+                case 'hourly':
+                    // Round to nearest hour
+                    date.setMinutes(0, 0, 0);
+                    key = date.getTime();
+                    break;
+                case 'daily':
+                    // Round to start of day
+                    date.setHours(0, 0, 0, 0);
+                    key = date.getTime();
+                    break;
+                case 'weekly':
+                    // Round to start of week (Sunday)
+                    const dayOfWeek = date.getDay();
+                    date.setDate(date.getDate() - dayOfWeek);
+                    date.setHours(0, 0, 0, 0);
+                    key = date.getTime();
+                    break;
+                default:
+                    key = d.x.getTime();
+            }
+            
+            if (!aggregated.has(key)) {
+                aggregated.set(key, {
+                    x: new Date(key),
+                    outdoorTemp: 0,
+                    coolingTime: 0,
+                    heatingTime: 0,
+                    count: 0
+                });
+            }
+            
+            const entry = aggregated.get(key);
+            entry.outdoorTemp += d.outdoorTemp;
+            entry.coolingTime += d.coolingTime;
+            entry.heatingTime += d.heatingTime;
+            entry.count++;
+        });
+        
+        // Calculate averages for temperature
+        return Array.from(aggregated.values()).map(entry => ({
+            x: entry.x,
+            outdoorTemp: entry.outdoorTemp / entry.count,
+            coolingTime: entry.coolingTime,
+            heatingTime: entry.heatingTime
+        })).sort((a, b) => a.x - b.x);
     }
 
     getRuntimeChartLabel() {
