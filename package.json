@@ -1,0 +1,16 @@
+{
+  "name": "nest-data-viewer",
+  "version": "1.0.0",
+  "description": "A web application to visualize Nest thermostat HVAC runtime data",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "keywords": ["nest", "hvac", "data", "visualization", "charts"],
+  "author": "Nest Data Viewer",
+  "license": "MIT",
+  "engines": {
+    "node": ">=14.0.0"
+  }
+}
