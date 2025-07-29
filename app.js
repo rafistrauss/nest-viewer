@@ -66,6 +66,19 @@ class NestDataViewer {
                 }
             });
         });
+
+        // Hot temperature threshold listeners
+        document.getElementById('enableHotThreshold').addEventListener('change', (event) => {
+            if (this.data.length > 0) {
+                this.createCharts();
+            }
+        });
+
+        document.getElementById('hotThreshold').addEventListener('input', (event) => {
+            if (this.data.length > 0) {
+                this.createCharts();
+            }
+        });
     }
 
     async handleFileUpload(file) {
@@ -184,6 +197,43 @@ class NestDataViewer {
         }));
 
         // Temperature Chart
+        const enableHotThreshold = document.getElementById('enableHotThreshold').checked;
+        const hotThresholdInput = document.getElementById('hotThreshold').value;
+        const hotThresholdValue = parseFloat(hotThresholdInput) || 75;
+        
+        // The threshold input is always in the current display unit, 
+        // so we need to convert it to the display temperature for comparison
+        const temperatureThreshold = this.temperatureUnit === 'F' ? 
+            hotThresholdValue : 
+            hotThresholdValue; // Input is already in the current unit
+        
+        // Custom plugin for temperature threshold background
+        const temperatureBackgroundPlugin = {
+            id: 'temperatureBackground',
+            beforeDraw: (chart) => {
+                if (!enableHotThreshold) return;
+                
+                const ctx = chart.ctx;
+                const chartArea = chart.chartArea;
+                const yScale = chart.scales.y;
+                
+                // Calculate pixel position for hot temperature threshold
+                const thresholdY = yScale.getPixelForValue(temperatureThreshold);
+                
+                if (thresholdY >= chartArea.top && thresholdY <= chartArea.bottom) {
+                    ctx.save();
+                    ctx.fillStyle = 'rgba(255, 0, 0, 0.1)';
+                    ctx.fillRect(
+                        chartArea.left,
+                        chartArea.top,
+                        chartArea.right - chartArea.left,
+                        thresholdY - chartArea.top
+                    );
+                    ctx.restore();
+                }
+            }
+        };
+        
         this.charts.temperature = new Chart(document.getElementById('temperatureChart'), {
             type: 'line',
             data: {
@@ -212,7 +262,8 @@ class NestDataViewer {
                     }
                 ]
             },
-            options: this.getCommonChartOptions(`Temperature (${this.temperatureUnit === 'F' ? '°F' : '°C'})`)
+            options: this.getCommonChartOptions(`Temperature (${this.temperatureUnit === 'F' ? '°F' : '°C'})`),
+            plugins: [temperatureBackgroundPlugin]
         });
 
         // Target vs Actual Chart
@@ -668,6 +719,31 @@ class NestDataViewer {
         const unit = this.temperatureUnit === 'F' ? '°F' : '°C';
         document.getElementById('tempUnit1').textContent = unit;
         document.getElementById('tempUnit2').textContent = unit;
+        
+        // Update the hot threshold input label and value
+        const thresholdLabel = document.querySelector('.threshold-input span');
+        const thresholdInput = document.getElementById('hotThreshold');
+        const currentValue = parseFloat(thresholdInput.value) || 75;
+        
+        if (unit === '°C') {
+            thresholdLabel.textContent = '°C and above';
+            // Convert current Fahrenheit value to Celsius if switching to Celsius
+            if (thresholdInput.dataset.unit !== 'C') {
+                thresholdInput.value = Math.round(this.fahrenheitToCelsius(currentValue));
+                thresholdInput.min = Math.round(this.fahrenheitToCelsius(60)); // ~15°C
+                thresholdInput.max = Math.round(this.fahrenheitToCelsius(100)); // ~38°C
+                thresholdInput.dataset.unit = 'C';
+            }
+        } else {
+            thresholdLabel.textContent = '°F and above';
+            // Convert current Celsius value to Fahrenheit if switching to Fahrenheit
+            if (thresholdInput.dataset.unit === 'C') {
+                thresholdInput.value = Math.round(this.celsiusToFahrenheit(currentValue));
+                thresholdInput.min = 60;
+                thresholdInput.max = 100;
+                thresholdInput.dataset.unit = 'F';
+            }
+        }
     }
 
     getCommonChartOptions(yAxisLabel) {
