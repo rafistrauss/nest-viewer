@@ -121,7 +121,7 @@ class NestDataViewer {
                 const record = JSON.parse(fixed);
                 
                 // Validate required fields
-                if (record.interval_start && record.indoor_temp !== undefined) {
+                if (record.interval_start && record.indoor_temp !== undefined && record.outdoor_temp !== undefined && record.outdoor_temp !== null) {
                     record.timestamp = new Date(record.interval_start);
                     data.push(record);
                 }
