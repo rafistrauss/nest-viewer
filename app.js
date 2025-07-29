@@ -79,6 +79,30 @@ class NestDataViewer {
                 this.createCharts();
             }
         });
+
+        // Help modal listeners
+        document.getElementById('helpButton').addEventListener('click', () => {
+            document.getElementById('helpModal').style.display = 'block';
+        });
+
+        document.getElementById('closeModal').addEventListener('click', () => {
+            document.getElementById('helpModal').style.display = 'none';
+        });
+
+        // Close modal when clicking outside of it
+        window.addEventListener('click', (event) => {
+            const modal = document.getElementById('helpModal');
+            if (event.target === modal) {
+                modal.style.display = 'none';
+            }
+        });
+
+        // Close modal with Escape key
+        document.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape') {
+                document.getElementById('helpModal').style.display = 'none';
+            }
+        });
     }
 
     async handleFileUpload(file) {
