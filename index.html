@@ -212,6 +212,35 @@
             box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
         }
 
+        .threshold-input {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-top: 10px;
+        }
+
+        .threshold-input input[type="number"] {
+            width: 70px;
+            padding: 6px 10px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            margin-right: 8px;
+            font-size: 14px;
+            text-align: center;
+            transition: border-color 0.3s ease;
+        }
+
+        .threshold-input input[type="number"]:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .threshold-input span {
+            color: #666;
+            font-size: 14px;
+        }
+
         .filter-section {
             padding: 30px;
             background: #f8f9fa;
@@ -400,6 +429,17 @@
                     <label for="fahrenheit">°F</label>
                     <input type="radio" id="celsius" name="tempUnit" value="C">
                     <label for="celsius">°C</label>
+                </div>
+            </div>
+            
+            <div class="unit-toggle">
+                <label class="toggle-label">
+                    <input type="checkbox" id="enableHotThreshold" checked style="margin-right: 8px;">
+                    Hot Temperature Highlight:
+                </label>
+                <div class="threshold-input">
+                    <input type="number" id="hotThreshold" value="75" min="60" max="100" step="1" style="width: 70px; padding: 4px 8px; border: 1px solid #ddd; border-radius: 4px; margin-right: 4px;">
+                    <span>°F and above</span>
                 </div>
             </div>
             
