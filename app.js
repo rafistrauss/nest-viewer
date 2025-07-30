@@ -103,6 +103,64 @@ class NestDataViewer {
                 document.getElementById('helpModal').style.display = 'none';
             }
         });
+
+        // Initialize drag and drop
+        this.initializeDragAndDrop();
+    }
+
+    initializeDragAndDrop() {
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+
+        if (!dropZone) return;
+
+        // Prevent default drag behaviors
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, this.preventDefaults, false);
+            document.body.addEventListener(eventName, this.preventDefaults, false);
+        });
+
+        // Highlight drop zone when item is dragged over it
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropZone.addEventListener(eventName, () => this.highlight(dropZone), false);
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, () => this.unhighlight(dropZone), false);
+        });
+
+        // Handle dropped files
+        dropZone.addEventListener('drop', (e) => this.handleDrop(e, fileInput), false);
+
+        // Make the entire drop zone clickable
+        dropZone.addEventListener('click', () => fileInput.click(), false);
+    }
+
+    preventDefaults(e) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
+
+    highlight(element) {
+        element.classList.add('dragover');
+    }
+
+    unhighlight(element) {
+        element.classList.remove('dragover');
+    }
+
+    handleDrop(e, fileInput) {
+        const dt = e.dataTransfer;
+        const files = dt.files;
+
+        if (files.length > 0) {
+            // Set the file to the input element
+            fileInput.files = files;
+            
+            // Trigger the change event to process the file
+            const event = new Event('change', { bubbles: true });
+            fileInput.dispatchEvent(event);
+        }
     }
 
     async handleFileUpload(file) {

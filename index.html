@@ -133,6 +133,31 @@
             position: relative;
             display: inline-block;
             margin: 20px 0;
+            padding: 20px;
+            border: 2px dashed #ddd;
+            border-radius: 15px;
+            transition: all 0.3s ease;
+            background: #fafafa;
+            min-width: 300px;
+            text-align: center;
+        }
+
+        .file-input-wrapper:hover {
+            border-color: #667eea;
+            background: #f0f4ff;
+        }
+
+        .file-input-wrapper.dragover {
+            border-color: #667eea;
+            background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
+            transform: scale(1.02);
+        }
+
+        .drag-drop-text {
+            color: #999;
+            font-size: 0.9rem;
+            margin-top: 10px;
+            font-style: italic;
         }
 
         .file-input {
@@ -658,11 +683,12 @@
             <h2>Upload Your Nest Data 
                 <button id="helpButton" class="help-button" title="How to get Nest data">❓</button>
             </h2>
-            <div class="file-input-wrapper">
+            <div class="file-input-wrapper" id="dropZone">
                 <input type="file" id="fileInput" class="file-input" accept=".jsonl,.json" />
                 <label for="fileInput" class="file-input-label">
                     📁 Choose JSONL File
                 </label>
+                <div class="drag-drop-text">or drag and drop your file here</div>
             </div>
             <p class="info-text">Select your exported Nest HVAC runtime data file (.jsonl format)</p>
             
