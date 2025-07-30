@@ -690,6 +690,257 @@
                 padding: 20px;
             }
         }
+
+        /* Enhanced Mobile Responsive Improvements */
+        @media (max-width: 768px) {
+            body {
+                padding: 10px;
+            }
+
+            .container {
+                border-radius: 15px;
+                overflow: visible;
+            }
+
+            .header {
+                padding: 20px 15px;
+            }
+
+            .header h1 {
+                font-size: 2rem;
+                margin-bottom: 8px;
+            }
+
+            .header p {
+                font-size: 1rem;
+            }
+
+            .upload-section {
+                padding: 20px 15px;
+            }
+
+            .upload-section h2 {
+                font-size: 1.3rem;
+                margin-bottom: 15px;
+            }
+
+            .file-input-wrapper {
+                min-width: auto;
+                width: 100%;
+                margin: 15px 0;
+                padding: 25px 15px;
+            }
+
+            .file-input-label {
+                font-size: 1rem;
+                padding: 12px 25px;
+            }
+
+            .sample-btn {
+                font-size: 0.9rem;
+                padding: 10px 20px;
+                margin: 10px 5px;
+            }
+
+            .info-text {
+                font-size: 0.85rem;
+                margin: 15px 0;
+                line-height: 1.4;
+            }
+
+            .unit-toggle {
+                margin: 15px 0;
+            }
+
+            .toggle-label {
+                font-size: 0.9rem;
+                margin-bottom: 8px;
+            }
+
+            .toggle-switch {
+                padding: 3px;
+                gap: 3px;
+            }
+
+            .toggle-switch label {
+                padding: 6px 15px;
+                font-size: 0.85rem;
+            }
+
+            .threshold-input input[type="number"] {
+                width: 60px;
+                padding: 4px 6px;
+                font-size: 13px;
+            }
+
+            .threshold-input span {
+                font-size: 13px;
+            }
+
+            .filter-section {
+                padding: 20px 15px;
+            }
+
+            .filter-section h3 {
+                font-size: 1.2rem;
+                margin-bottom: 20px;
+            }
+
+            .filter-controls {
+                flex-direction: column;
+                gap: 15px;
+                align-items: stretch;
+            }
+
+            .date-input-group {
+                width: 100%;
+                max-width: 280px;
+                margin: 0 auto;
+            }
+
+            .date-input {
+                padding: 8px 12px;
+                font-size: 0.85rem;
+                width: 100%;
+            }
+
+            .filter-buttons {
+                justify-content: center;
+                margin-top: 10px;
+            }
+
+            .filter-btn {
+                padding: 8px 16px;
+                font-size: 0.85rem;
+            }
+
+            .quick-filters {
+                margin-top: 15px;
+                padding-top: 15px;
+            }
+
+            .quick-filter-label {
+                display: block;
+                margin-bottom: 10px;
+                margin-right: 0;
+                text-align: center;
+            }
+
+            .quick-filter {
+                margin: 5px 3px;
+                padding: 6px 12px;
+                font-size: 0.8rem;
+            }
+
+            .stats-grid {
+                padding: 20px 15px;
+                grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+                gap: 15px;
+            }
+
+            .stat-card {
+                padding: 15px;
+            }
+
+            .stat-value {
+                font-size: 2rem;
+            }
+
+            .stat-label {
+                font-size: 0.8rem;
+            }
+
+            .charts-section {
+                padding: 20px 15px;
+            }
+
+            .chart-container {
+                padding: 20px 15px;
+                margin-bottom: 20px;
+            }
+
+            .chart-title {
+                font-size: 1.2rem;
+                margin-bottom: 15px;
+            }
+
+            .chart-wrapper {
+                height: 300px;
+            }
+
+            .chart-controls {
+                padding: 10px;
+                margin-bottom: 15px;
+            }
+
+            .control-label {
+                display: block;
+                margin-bottom: 8px;
+                margin-right: 0;
+                text-align: center;
+                font-size: 0.85rem;
+            }
+
+            .aggregation-toggle {
+                padding: 2px;
+                gap: 2px;
+            }
+
+            .aggregation-toggle label {
+                padding: 5px 12px;
+                font-size: 0.8rem;
+            }
+
+            .help-button {
+                font-size: 1rem;
+                margin-left: 5px;
+                padding: 3px 6px;
+            }
+
+            .error {
+                margin: 15px 0;
+                padding: 12px;
+                font-size: 0.85rem;
+            }
+
+            .loading {
+                padding: 30px;
+                font-size: 0.9rem;
+            }
+        }
+
+        /* Extra small mobile devices */
+        @media (max-width: 480px) {
+            body {
+                padding: 5px;
+            }
+
+            .header h1 {
+                font-size: 1.6rem;
+            }
+
+            .file-input-wrapper {
+                padding: 20px 10px;
+            }
+
+            .stats-grid {
+                grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+                gap: 10px;
+            }
+
+            .stat-value {
+                font-size: 1.6rem;
+            }
+
+            .chart-wrapper {
+                height: 250px;
+            }
+
+            .aggregation-toggle label {
+                padding: 4px 8px;
+                font-size: 0.75rem;
+            }
+        }
     </style>
 </head>
 <body>
