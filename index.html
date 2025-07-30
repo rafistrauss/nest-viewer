@@ -183,6 +183,26 @@
             box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
         }
 
+        .sample-btn {
+            display: inline-block;
+            padding: 12px 25px;
+            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+            color: white;
+            border: none;
+            border-radius: 50px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 1rem;
+            font-weight: 500;
+            margin: 0 10px;
+        }
+
+        .sample-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(40, 167, 69, 0.3);
+            background: linear-gradient(135deg, #218838 0%, #1fa080 100%);
+        }
+
         .stats-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
@@ -690,7 +710,12 @@
                 </label>
                 <div class="drag-drop-text">or drag and drop your file here</div>
             </div>
-            <p class="info-text">Select your exported Nest HVAC runtime data file (.jsonl format)</p>
+            <div style="margin: 20px 0;">
+                <button id="loadSampleData" class="sample-btn">
+                    🎯 Try Sample Data
+                </button>
+            </div>
+            <p class="info-text">Select your exported Nest HVAC runtime data file (.jsonl format) or try the sample data</p>
             
             <div class="unit-toggle">
                 <label class="toggle-label">Temperature Unit:</label>

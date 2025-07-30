@@ -106,6 +106,11 @@ class NestDataViewer {
 
         // Initialize drag and drop
         this.initializeDragAndDrop();
+
+        // Sample data button listener
+        document.getElementById('loadSampleData').addEventListener('click', () => {
+            this.loadSampleData();
+        });
     }
 
     initializeDragAndDrop() {
@@ -165,6 +170,38 @@ class NestDataViewer {
             // Trigger the change event to process the file
             const event = new Event('change', { bubbles: true });
             fileInput.dispatchEvent(event);
+        }
+    }
+
+    async loadSampleData() {
+        this.showLoading(true);
+        this.hideError();
+
+        try {
+            const response = await fetch('HvacRuntime_demo.jsonl');
+            
+            if (!response.ok) {
+                throw new Error(`Failed to load sample data: ${response.status}`);
+            }
+            
+            const text = await response.text();
+            this.data = this.parseJSONL(text);
+            
+            if (this.data.length === 0) {
+                throw new Error('No valid data found in the sample file');
+            }
+
+            this.filteredData = [...this.data]; // Initialize filtered data with all data
+            this.setupDateFilter();
+            this.updateStats();
+            this.createCharts();
+            this.showSections();
+            
+        } catch (error) {
+            console.error('Error loading sample data:', error);
+            this.showError(`Failed to load sample data: ${error.message}`);
+        } finally {
+            this.showLoading(false);
         }
     }
 
