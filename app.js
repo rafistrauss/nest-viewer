@@ -132,8 +132,13 @@ class NestDataViewer {
         // Handle dropped files
         dropZone.addEventListener('drop', (e) => this.handleDrop(e, fileInput), false);
 
-        // Make the entire drop zone clickable
-        dropZone.addEventListener('click', () => fileInput.click(), false);
+        // Make the entire drop zone clickable, but not when clicking the label
+        dropZone.addEventListener('click', (e) => {
+            // Don't trigger if clicking on the label (it already triggers the file input)
+            if (e.target.tagName.toLowerCase() !== 'label') {
+                fileInput.click();
+            }
+        }, false);
     }
 
     preventDefaults(e) {
