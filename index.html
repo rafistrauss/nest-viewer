@@ -82,6 +82,7 @@
     
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom"></script>
     <style>
         * {
             margin: 0;
@@ -259,6 +260,13 @@
         .chart-wrapper {
             position: relative;
             height: 400px;
+            cursor: crosshair;
+        }
+
+        .chart-wrapper:hover {
+            box-shadow: 0 2px 8px rgba(102, 126, 234, 0.2);
+            border-radius: 10px;
+            transition: box-shadow 0.3s ease;
         }
 
         .loading {
@@ -371,6 +379,23 @@
             margin-bottom: 25px;
             color: #333;
             font-size: 1.3rem;
+        }
+
+        .chart-selection-info {
+            background: #e7f3ff;
+            border: 1px solid #b8daff;
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+
+        .chart-selection-info p {
+            margin: 0;
+            text-align: center;
+        }
+
+        .chart-selection-info strong {
+            color: #004085;
         }
 
         .filter-controls {
@@ -994,6 +1019,12 @@
 
         <div id="filterSection" class="filter-section" style="display: none;">
             <h3>📅 Date Range Filter</h3>
+            <div class="chart-selection-info">
+                <p style="text-align: center; color: #666; font-size: 0.9rem; margin-bottom: 20px;">
+                    💡 <strong>Tip:</strong> You can also select date ranges by zooming on any chart below!<br>
+                    <small>Use mouse wheel to zoom, drag to pan, or drag to select a range</small>
+                </p>
+            </div>
             <div class="filter-controls">
                 <div class="date-input-group">
                     <label for="startDate">Start Date:</label>
@@ -1006,6 +1037,7 @@
                 <div class="filter-buttons">
                     <button id="applyFilter" class="filter-btn apply-btn">Apply Filter</button>
                     <button id="resetFilter" class="filter-btn reset-btn">Show All Data</button>
+                    <button id="resetZoom" class="filter-btn reset-btn">Reset Chart Zoom</button>
                 </div>
             </div>
             <div class="quick-filters">

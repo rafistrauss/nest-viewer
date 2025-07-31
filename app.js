@@ -45,6 +45,10 @@ class NestDataViewer {
             this.resetDateFilter();
         });
 
+        document.getElementById('resetZoom').addEventListener('click', () => {
+            this.resetAllChartsZoom();
+        });
+
         // Quick filter listeners
         document.querySelectorAll('.quick-filter').forEach(button => {
             button.addEventListener('click', (event) => {
@@ -948,6 +952,38 @@ class NestDataViewer {
                                 return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
                             }
                         }
+                    },
+                    zoom: {
+                        limits: {
+                            x: {min: 'original', max: 'original'},
+                        },
+                        pan: {
+                            enabled: true,
+                            mode: 'x',
+                            modifierKey: 'shift',
+                            onPanComplete: (context) => {
+                                this.onChartInteraction(context.chart);
+                            }
+                        },
+                        zoom: {
+                            wheel: {
+                                enabled: true,
+                                speed: 0.1,
+                            },
+                            pinch: {
+                                enabled: true
+                            },
+                            drag: {
+                                enabled: true,
+                                backgroundColor: 'rgba(102, 126, 234, 0.2)',
+                                borderColor: 'rgba(102, 126, 234, 0.8)',
+                                borderWidth: 1,
+                            },
+                            mode: 'x',
+                            onZoomComplete: (context) => {
+                                this.onChartInteraction(context.chart);
+                            }
+                        }
                     }
                 },
                 scales: {
@@ -1263,6 +1299,38 @@ class NestDataViewer {
                             return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
                         }
                     }
+                },
+                zoom: {
+                    limits: {
+                        x: {min: 'original', max: 'original'},
+                    },
+                    pan: {
+                        enabled: true,
+                        mode: 'x',
+                        modifierKey: 'shift',
+                        onPanComplete: (context) => {
+                            this.onChartInteraction(context.chart);
+                        }
+                    },
+                    zoom: {
+                        wheel: {
+                            enabled: true,
+                            speed: 0.1,
+                        },
+                        pinch: {
+                            enabled: true
+                        },
+                        drag: {
+                            enabled: true,
+                            backgroundColor: 'rgba(102, 126, 234, 0.2)',
+                            borderColor: 'rgba(102, 126, 234, 0.8)',
+                            borderWidth: 1,
+                        },
+                        mode: 'x',
+                        onZoomComplete: (context) => {
+                            this.onChartInteraction(context.chart);
+                        }
+                    }
                 }
             },
             scales: {
@@ -1306,6 +1374,74 @@ class NestDataViewer {
             if (chart) chart.destroy();
         });
         this.charts = {};
+    }
+
+    onChartInteraction(chart) {
+        // Get the current zoom range from the chart
+        const xScale = chart.scales.x;
+        if (!xScale) return;
+        
+        const startTime = new Date(xScale.min);
+        const endTime = new Date(xScale.max);
+        
+        // Update the date filter inputs to reflect the chart selection
+        const startInput = document.getElementById('startDate');
+        const endInput = document.getElementById('endDate');
+        
+        if (startInput && endInput) {
+            startInput.value = this.formatDateForInput(startTime);
+            endInput.value = this.formatDateForInput(endTime);
+            
+            // Apply the filter based on chart selection
+            this.debouncedUpdate(() => {
+                this.applyDateFilterFromChart(startTime, endTime);
+            }, 100);
+        }
+    }
+
+    applyDateFilterFromChart(startDate, endDate) {
+        // Filter data based on chart selection
+        this.filteredData = this.data.filter(record => 
+            record.timestamp >= startDate && record.timestamp <= endDate
+        );
+        
+        if (this.filteredData.length === 0) {
+            this.showError('No data found in the selected date range');
+            return;
+        }
+        
+        this.hideError();
+        this.updateStats();
+        
+        // Update only non-chart UI elements to avoid zoom conflicts
+        // Don't recreate charts as they are already showing the selected range
+    }
+
+    resetAllChartsZoom() {
+        // Reset zoom on all charts
+        Object.values(this.charts).forEach(chart => {
+            if (chart && chart.resetZoom) {
+                chart.resetZoom();
+            }
+        });
+        
+        // Reset the date filter
+        this.resetDateFilter();
+    }
+
+    syncChartZoom(sourceChart) {
+        // Sync zoom level across all charts for better UX
+        if (!sourceChart || !sourceChart.scales || !sourceChart.scales.x) return;
+        
+        const xScale = sourceChart.scales.x;
+        const min = xScale.min;
+        const max = xScale.max;
+        
+        Object.values(this.charts).forEach(chart => {
+            if (chart !== sourceChart && chart.scales && chart.scales.x) {
+                chart.zoomScale('x', {min, max}, 'none');
+            }
+        });
     }
 
     showLoading(show) {
@@ -1395,6 +1531,15 @@ class NestDataViewer {
         this.hideError();
         this.updateStats();
         this.createCharts();
+        
+        // Reset zoom on all charts as well
+        setTimeout(() => {
+            Object.values(this.charts).forEach(chart => {
+                if (chart && chart.resetZoom) {
+                    chart.resetZoom();
+                }
+            });
+        }, 100);
     }
 
     applyQuickFilter(days) {
@@ -1419,5 +1564,8 @@ class NestDataViewer {
 
 // Initialize the application
 document.addEventListener('DOMContentLoaded', () => {
+    // Chart.js zoom plugin is automatically registered when loaded via CDN
+    // No manual registration needed for CDN loaded plugins
+    
     new NestDataViewer();
 });
