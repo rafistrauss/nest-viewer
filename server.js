@@ -50,10 +50,34 @@ server.listen(PORT, () => {
     console.log('📁 Place your JSONL file in this directory and upload it via the web interface');
 });
 
-// Graceful shutdown
-process.on('SIGINT', () => {
-    console.log('\n👋 Server shutting down gracefully...');
+// Set max listeners to avoid warning
+server.setMaxListeners(15);
+
+let isShuttingDown = false;
+
+// Graceful shutdown function
+function gracefulShutdown(signal) {
+    if (isShuttingDown) {
+        console.log('👋 Force shutdown...');
+        process.exit(1);
+    }
+    
+    isShuttingDown = true;
+    console.log(`\n👋 Server shutting down gracefully... (received ${signal})`);
+    console.log('Press Ctrl+C again to force shutdown');
+    
     server.close(() => {
+        console.log('✅ Server closed successfully');
         process.exit(0);
     });
-});
+    
+    // Force shutdown after 5 seconds if graceful shutdown fails
+    setTimeout(() => {
+        console.log('⚠️  Force shutdown due to timeout');
+        process.exit(1);
+    }, 5000);
+}
+
+// Handle different shutdown signals
+process.once('SIGINT', () => gracefulShutdown('SIGINT'));
+process.once('SIGTERM', () => gracefulShutdown('SIGTERM'));

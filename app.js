@@ -6,7 +6,12 @@ class NestDataViewer {
         this.temperatureUnit = 'F'; // Default to Fahrenheit
         this.runtimeAggregation = '15min'; // Default aggregation
         this.correlationAggregation = '15min'; // Default aggregation for correlation chart
+        this.timeSeriesData = []; // Cached processed data
+        this.isProcessing = false;
+        this.dataWorker = null;
+        this.updateTimeout = null; // For debouncing
         this.initializeEventListeners();
+        this.initializeWorker();
     }
 
     initializeEventListeners() {
@@ -22,8 +27,11 @@ class NestDataViewer {
                 this.temperatureUnit = event.target.value;
                 this.updateTemperatureUnits();
                 if (this.data.length > 0) {
-                    this.updateStats();
-                    this.createCharts();
+                    this.debouncedUpdate(() => {
+                        this.updateStats();
+                        // When temperature unit changes, we need to recreate all charts
+                        this.recreateChartsWithNewUnits();
+                    });
                 }
             });
         });
@@ -45,38 +53,46 @@ class NestDataViewer {
             });
         });
 
-        // Runtime aggregation listeners
+        // Runtime aggregation listeners with debouncing
         const runtimeAggInputs = document.querySelectorAll('input[name="runtimeAggregation"]');
         runtimeAggInputs.forEach(input => {
             input.addEventListener('change', (event) => {
                 this.runtimeAggregation = event.target.value;
                 if (this.data.length > 0) {
-                    this.createCharts();
+                    this.debouncedUpdate(() => {
+                        this.updateRuntimeChart();
+                    });
                 }
             });
         });
 
-        // Correlation aggregation listeners
+        // Correlation aggregation listeners with debouncing
         const correlationAggInputs = document.querySelectorAll('input[name="correlationAggregation"]');
         correlationAggInputs.forEach(input => {
             input.addEventListener('change', (event) => {
                 this.correlationAggregation = event.target.value;
                 if (this.data.length > 0) {
-                    this.createCharts();
+                    this.debouncedUpdate(() => {
+                        this.updateCorrelationChart();
+                    });
                 }
             });
         });
 
-        // Hot temperature threshold listeners
+        // Hot temperature threshold listeners with debouncing
         document.getElementById('enableHotThreshold').addEventListener('change', (event) => {
             if (this.data.length > 0) {
-                this.createCharts();
+                this.debouncedUpdate(() => {
+                    this.updateTemperatureChart();
+                });
             }
         });
 
         document.getElementById('hotThreshold').addEventListener('input', (event) => {
             if (this.data.length > 0) {
-                this.createCharts();
+                this.debouncedUpdate(() => {
+                    this.updateTemperatureChart();
+                });
             }
         });
 
@@ -111,6 +127,124 @@ class NestDataViewer {
         document.getElementById('loadSampleData').addEventListener('click', () => {
             this.loadSampleData();
         });
+    }
+
+    initializeWorker() {
+        if (typeof Worker !== 'undefined') {
+            this.dataWorker = new Worker('dataWorker.js');
+            this.dataWorker.onmessage = (e) => {
+                this.handleWorkerMessage(e.data);
+            };
+            this.dataWorker.onerror = (error) => {
+                console.error('Worker error:', error);
+                this.showError('Error processing data in background worker');
+                this.showLoading(false);
+                this.isProcessing = false;
+            };
+        }
+    }
+
+    handleWorkerMessage(message) {
+        const { type, data, progress, error, aggregationType } = message;
+        
+        switch (type) {
+            case 'progress':
+                this.updateProgress(progress, message.processed, message.total);
+                break;
+                
+            case 'parseComplete':
+                this.updateProgressStep('processing');
+                this.data = data;
+                this.filteredData = [...this.data];
+                // Use setTimeout to allow UI to update before heavy processing
+                setTimeout(() => {
+                    this.prepareChartData();
+                }, 10);
+                break;
+                
+            case 'chartDataReady':
+                this.updateProgressStep('stats');
+                this.timeSeriesData = data;
+                
+                // Break up the work into smaller chunks
+                setTimeout(() => {
+                    this.setupDateFilter();
+                    this.updateStats();
+                    this.updateProgressStep('charts');
+                    
+                    // Show sections immediately, then create charts
+                    setTimeout(() => {
+                        this.showSections();
+                        this.createChartsProgressively();
+                    }, 10);
+                }, 10);
+                break;
+                
+            case 'runtimeAggregated':
+                this.updateRuntimeChartWithData(data, aggregationType);
+                break;
+                
+            case 'temperatureAggregated':
+                this.updateCorrelationChartWithData(data, aggregationType);
+                break;
+                
+            case 'error':
+                console.error('Worker error:', error);
+                this.showError(`Error processing data: ${error}`);
+                this.showLoading(false);
+                this.isProcessing = false;
+                break;
+        }
+    }
+
+    debouncedUpdate(callback, delay = 300) {
+        if (this.updateTimeout) {
+            clearTimeout(this.updateTimeout);
+        }
+        this.updateTimeout = setTimeout(callback, delay);
+    }
+
+    updateProgress(progress, processed, total) {
+        const loadingElement = document.getElementById('loading');
+        if (loadingElement.classList.contains('show')) {
+            loadingElement.innerHTML = `
+                <p>🔄 Processing your data...</p>
+                <p>Progress: ${progress}% (${processed.toLocaleString()} / ${total.toLocaleString()} lines)</p>
+                <div style="width: 100%; background: #f0f0f0; border-radius: 10px; margin: 10px 0;">
+                    <div style="width: ${progress}%; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); height: 20px; border-radius: 10px; transition: width 0.3s ease;"></div>
+                </div>
+            `;
+        }
+    }
+
+    updateProgressStep(step, substep = '') {
+        const loadingElement = document.getElementById('loading');
+        if (loadingElement.classList.contains('show')) {
+            const steps = {
+                'parsing': '📄 Parsing data...',
+                'processing': '⚡ Processing chart data...',
+                'stats': '📊 Calculating statistics...',
+                'charts': '📈 Creating charts...',
+                'complete': '✅ Ready!'
+            };
+            
+            const stepText = steps[step] || step;
+            const substepText = substep ? `<br><small>${substep}</small>` : '';
+            
+            loadingElement.innerHTML = `
+                <p>${stepText}${substepText}</p>
+                <div style="width: 100%; background: #f0f0f0; border-radius: 10px; margin: 10px 0;">
+                    <div style="width: 100%; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); height: 20px; border-radius: 10px; animation: pulse 1.5s ease-in-out infinite;"></div>
+                </div>
+                <style>
+                    @keyframes pulse {
+                        0% { opacity: 0.6; }
+                        50% { opacity: 1; }
+                        100% { opacity: 0.6; }
+                    }
+                </style>
+            `;
+        }
     }
 
     initializeDragAndDrop() {
@@ -174,8 +308,11 @@ class NestDataViewer {
     }
 
     async loadSampleData() {
+        if (this.isProcessing) return;
+        
         this.showLoading(true);
         this.hideError();
+        this.isProcessing = true;
 
         try {
             const response = await fetch('HvacRuntime_demo.jsonl');
@@ -185,51 +322,100 @@ class NestDataViewer {
             }
             
             const text = await response.text();
-            this.data = this.parseJSONL(text);
             
-            if (this.data.length === 0) {
-                throw new Error('No valid data found in the sample file');
+            if (this.dataWorker) {
+                this.dataWorker.postMessage({
+                    type: 'parseJSONL',
+                    data: { text: text }
+                });
+            } else {
+                // Fallback for browsers without Worker support
+                this.data = this.parseJSONL(text);
+                this.prepareChartDataFallback();
             }
-
-            this.filteredData = [...this.data]; // Initialize filtered data with all data
-            this.setupDateFilter();
-            this.updateStats();
-            this.createCharts();
-            this.showSections();
             
         } catch (error) {
             console.error('Error loading sample data:', error);
             this.showError(`Failed to load sample data: ${error.message}`);
-        } finally {
             this.showLoading(false);
+            this.isProcessing = false;
         }
     }
 
     async handleFileUpload(file) {
-        if (!file) return;
+        if (!file || this.isProcessing) return;
 
         this.showLoading(true);
         this.hideError();
+        this.isProcessing = true;
 
         try {
             const text = await this.readFile(file);
-            this.data = this.parseJSONL(text);
             
-            if (this.data.length === 0) {
-                throw new Error('No valid data found in the file');
+            if (this.dataWorker) {
+                this.dataWorker.postMessage({
+                    type: 'parseJSONL',
+                    data: { text: text }
+                });
+            } else {
+                // Fallback for browsers without Worker support
+                this.data = this.parseJSONL(text);
+                this.prepareChartDataFallback();
             }
-
-            this.filteredData = [...this.data]; // Initialize filtered data with all data
-            this.setupDateFilter();
-            this.updateStats();
-            this.createCharts();
-            this.showSections();
             
         } catch (error) {
             this.showError(`Error processing file: ${error.message}`);
-        } finally {
             this.showLoading(false);
+            this.isProcessing = false;
         }
+    }
+
+    prepareChartData() {
+        if (this.dataWorker && this.data.length > 0) {
+            this.dataWorker.postMessage({
+                type: 'prepareChartData',
+                data: {
+                    rawData: this.data,
+                    temperatureUnit: this.temperatureUnit
+                }
+            });
+        }
+    }
+
+    prepareChartDataFallback() {
+        if (this.data.length === 0) {
+            throw new Error('No valid data found in the file');
+        }
+
+        this.updateProgressStep('processing');
+        this.filteredData = [...this.data];
+        
+        // Prepare chart data synchronously (fallback)
+        setTimeout(() => {
+            this.timeSeriesData = this.data.map(d => ({
+                x: d.timestamp,
+                indoorTemp: this.getTemperatureForDisplay(d.indoor_temp),
+                outdoorTemp: this.getTemperatureForDisplay(d.outdoor_temp),
+                coolingTarget: this.getTemperatureForDisplay(d.cooling_target),
+                heatingTarget: this.getTemperatureForDisplay(d.heating_target),
+                indoorHumidity: d.indoor_humidity,
+                outdoorHumidity: d.outdoor_humidity,
+                coolingTime: d.cooling_time / 60,
+                heatingTime: d.heating_time / 60
+            }));
+            
+            this.updateProgressStep('stats');
+            setTimeout(() => {
+                this.setupDateFilter();
+                this.updateStats();
+                this.updateProgressStep('charts');
+                
+                setTimeout(() => {
+                    this.showSections();
+                    this.createChartsProgressively();
+                }, 10);
+            }, 10);
+        }, 10);
     }
 
     readFile(file) {
@@ -305,33 +491,90 @@ class NestDataViewer {
         this.destroyExistingCharts();
         
         // Use filtered data for charts
-        const dataToUse = this.filteredData.length > 0 ? this.filteredData : this.data;
-        
-        // Prepare data - create datasets with x,y pairs for time series
-        const timeSeriesData = dataToUse.map(d => ({
-            x: d.timestamp,
-            indoorTemp: this.getTemperatureForDisplay(d.indoor_temp),
-            outdoorTemp: this.getTemperatureForDisplay(d.outdoor_temp),
-            coolingTarget: this.getTemperatureForDisplay(d.cooling_target),
-            heatingTarget: this.getTemperatureForDisplay(d.heating_target),
-            indoorHumidity: d.indoor_humidity,
-            outdoorHumidity: d.outdoor_humidity,
-            coolingTime: d.cooling_time / 60, // Convert to minutes
-            heatingTime: d.heating_time / 60  // Convert to minutes
-        }));
+        const dataToUse = this.getFilteredTimeSeriesData();
 
-        // Temperature Chart
+        // Create all charts
+        this.createTemperatureChart(dataToUse);
+        this.createTargetChart(dataToUse);
+        this.createHumidityChart(dataToUse);
+        this.createRuntimeChart(dataToUse);
+        this.createCorrelationChart(dataToUse);
+    }
+
+    createChartsProgressively() {
+        this.destroyExistingCharts();
+        const dataToUse = this.getFilteredTimeSeriesData();
+        
+        const charts = [
+            { name: 'Temperature Chart', method: () => this.createTemperatureChart(dataToUse) },
+            { name: 'Target Chart', method: () => this.createTargetChart(dataToUse) },
+            { name: 'Humidity Chart', method: () => this.createHumidityChart(dataToUse) },
+            { name: 'Runtime Chart', method: () => this.createRuntimeChart(dataToUse) },
+            { name: 'Correlation Chart', method: () => this.createCorrelationChart(dataToUse) }
+        ];
+        
+        let currentChart = 0;
+        
+        const createNextChart = () => {
+            if (currentChart < charts.length) {
+                const chart = charts[currentChart];
+                this.updateProgressStep('charts', `Creating ${chart.name}... (${currentChart + 1}/${charts.length})`);
+                
+                // Use setTimeout to allow UI to update
+                setTimeout(() => {
+                    chart.method();
+                    currentChart++;
+                    createNextChart();
+                }, 50);
+            } else {
+                // All charts created
+                this.updateProgressStep('complete');
+                setTimeout(() => {
+                    this.showLoading(false);
+                    this.isProcessing = false;
+                }, 500);
+            }
+        };
+        
+        createNextChart();
+    }
+
+    getFilteredTimeSeriesData() {
+        const dataToUse = this.filteredData.length > 0 ? this.filteredData : this.data;
+        if (this.timeSeriesData.length === 0 || this.timeSeriesData.length !== dataToUse.length) {
+            // Regenerate time series data if needed
+            return dataToUse.map(d => ({
+                x: d.timestamp,
+                indoorTemp: this.getTemperatureForDisplay(d.indoor_temp),
+                outdoorTemp: this.getTemperatureForDisplay(d.outdoor_temp),
+                coolingTarget: this.getTemperatureForDisplay(d.cooling_target),
+                heatingTarget: this.getTemperatureForDisplay(d.heating_target),
+                indoorHumidity: d.indoor_humidity,
+                outdoorHumidity: d.outdoor_humidity,
+                coolingTime: d.cooling_time / 60,
+                heatingTime: d.heating_time / 60
+            }));
+        }
+        
+        // Filter existing time series data if we have time filtering
+        const startTime = dataToUse[0]?.timestamp;
+        const endTime = dataToUse[dataToUse.length - 1]?.timestamp;
+        
+        if (!startTime || !endTime) return this.timeSeriesData;
+        
+        return this.timeSeriesData.filter(d => 
+            d.x >= startTime && d.x <= endTime
+        );
+    }
+
+    createTemperatureChart(timeSeriesData) {
         const enableHotThreshold = document.getElementById('enableHotThreshold').checked;
         const hotThresholdInput = document.getElementById('hotThreshold').value;
         const hotThresholdValue = parseFloat(hotThresholdInput) || 75;
-        
-        // The threshold input is always in the current display unit, 
-        // so we need to convert it to the display temperature for comparison
         const temperatureThreshold = this.temperatureUnit === 'F' ? 
             hotThresholdValue : 
-            hotThresholdValue; // Input is already in the current unit
+            hotThresholdValue;
         
-        // Custom plugin for temperature threshold background
         const temperatureBackgroundPlugin = {
             id: 'temperatureBackground',
             beforeDraw: (chart) => {
@@ -341,7 +584,6 @@ class NestDataViewer {
                 const chartArea = chart.chartArea;
                 const yScale = chart.scales.y;
                 
-                // Calculate pixel position for hot temperature threshold
                 const thresholdY = yScale.getPixelForValue(temperatureThreshold);
                 
                 if (thresholdY >= chartArea.top && thresholdY <= chartArea.bottom) {
@@ -357,6 +599,16 @@ class NestDataViewer {
                 }
             }
         };
+
+        // Pre-process data to avoid mapping during chart creation
+        const indoorTempData = [];
+        const outdoorTempData = [];
+        
+        for (let i = 0; i < timeSeriesData.length; i++) {
+            const d = timeSeriesData[i];
+            indoorTempData.push({ x: d.x, y: d.indoorTemp });
+            outdoorTempData.push({ x: d.x, y: d.outdoorTemp });
+        }
         
         this.charts.temperature = new Chart(document.getElementById('temperatureChart'), {
             type: 'line',
@@ -364,7 +616,7 @@ class NestDataViewer {
                 datasets: [
                     {
                         label: 'Indoor Temperature',
-                        data: timeSeriesData.map(d => ({ x: d.x, y: d.indoorTemp })),
+                        data: indoorTempData,
                         borderColor: '#ff6b6b',
                         backgroundColor: 'rgba(255, 107, 107, 0.1)',
                         borderWidth: 2,
@@ -375,7 +627,7 @@ class NestDataViewer {
                     },
                     {
                         label: 'Outdoor Temperature',
-                        data: timeSeriesData.map(d => ({ x: d.x, y: d.outdoorTemp })),
+                        data: outdoorTempData,
                         borderColor: '#4ecdc4',
                         backgroundColor: 'rgba(78, 205, 196, 0.1)',
                         borderWidth: 2,
@@ -389,15 +641,36 @@ class NestDataViewer {
             options: this.getCommonChartOptions(`Temperature (${this.temperatureUnit === 'F' ? '°F' : '°C'})`),
             plugins: [temperatureBackgroundPlugin]
         });
+    }
 
-        // Target vs Actual Chart
+    updateTemperatureChart() {
+        if (this.charts.temperature) {
+            this.charts.temperature.destroy();
+        }
+        const timeSeriesData = this.getFilteredTimeSeriesData();
+        this.createTemperatureChart(timeSeriesData);
+    }
+
+    createTargetChart(timeSeriesData) {
+        // Pre-process data to avoid mapping during chart creation
+        const indoorTempData = [];
+        const coolingTargetData = [];
+        const heatingTargetData = [];
+        
+        for (let i = 0; i < timeSeriesData.length; i++) {
+            const d = timeSeriesData[i];
+            indoorTempData.push({ x: d.x, y: d.indoorTemp });
+            coolingTargetData.push({ x: d.x, y: d.coolingTarget });
+            heatingTargetData.push({ x: d.x, y: d.heatingTarget });
+        }
+        
         this.charts.target = new Chart(document.getElementById('targetChart'), {
             type: 'line',
             data: {
                 datasets: [
                     {
                         label: 'Indoor Temperature',
-                        data: timeSeriesData.map(d => ({ x: d.x, y: d.indoorTemp })),
+                        data: indoorTempData,
                         borderColor: '#ff6b6b',
                         backgroundColor: 'rgba(255, 107, 107, 0.1)',
                         borderWidth: 2,
@@ -408,7 +681,7 @@ class NestDataViewer {
                     },
                     {
                         label: 'Cooling Target',
-                        data: timeSeriesData.map(d => ({ x: d.x, y: d.coolingTarget })),
+                        data: coolingTargetData,
                         borderColor: '#45b7d1',
                         backgroundColor: 'rgba(69, 183, 209, 0.1)',
                         borderWidth: 2,
@@ -420,7 +693,7 @@ class NestDataViewer {
                     },
                     {
                         label: 'Heating Target',
-                        data: timeSeriesData.map(d => ({ x: d.x, y: d.heatingTarget })),
+                        data: heatingTargetData,
                         borderColor: '#f39c12',
                         backgroundColor: 'rgba(243, 156, 18, 0.1)',
                         borderWidth: 2,
@@ -434,15 +707,26 @@ class NestDataViewer {
             },
             options: this.getCommonChartOptions(`Temperature (${this.temperatureUnit === 'F' ? '°F' : '°C'})`)
         });
+    }
 
-        // Humidity Chart
+    createHumidityChart(timeSeriesData) {
+        // Pre-process data to avoid mapping during chart creation
+        const indoorHumidityData = [];
+        const outdoorHumidityData = [];
+        
+        for (let i = 0; i < timeSeriesData.length; i++) {
+            const d = timeSeriesData[i];
+            indoorHumidityData.push({ x: d.x, y: d.indoorHumidity });
+            outdoorHumidityData.push({ x: d.x, y: d.outdoorHumidity });
+        }
+        
         this.charts.humidity = new Chart(document.getElementById('humidityChart'), {
             type: 'line',
             data: {
                 datasets: [
                     {
                         label: 'Indoor Humidity',
-                        data: timeSeriesData.map(d => ({ x: d.x, y: d.indoorHumidity })),
+                        data: indoorHumidityData,
                         borderColor: '#9b59b6',
                         backgroundColor: 'rgba(155, 89, 182, 0.1)',
                         borderWidth: 2,
@@ -453,7 +737,7 @@ class NestDataViewer {
                     },
                     {
                         label: 'Outdoor Humidity',
-                        data: timeSeriesData.map(d => ({ x: d.x, y: d.outdoorHumidity })),
+                        data: outdoorHumidityData,
                         borderColor: '#3498db',
                         backgroundColor: 'rgba(52, 152, 219, 0.1)',
                         borderWidth: 2,
@@ -466,36 +750,67 @@ class NestDataViewer {
             },
             options: this.getCommonChartOptions('Humidity (%)')
         });
+    }
 
-        // Runtime Chart
-        const runtimeData = timeSeriesData.map(d => ({
-            x: d.x,
-            coolingTime: d.coolingTime,
-            heatingTime: d.heatingTime
-        }));
+    createRuntimeChart(timeSeriesData) {
+        // Pre-process runtime data to avoid mapping during aggregation
+        const runtimeData = [];
+        for (let i = 0; i < timeSeriesData.length; i++) {
+            const d = timeSeriesData[i];
+            runtimeData.push({
+                x: d.x,
+                coolingTime: d.coolingTime,
+                heatingTime: d.heatingTime
+            });
+        }
         
-        const aggregatedRuntimeData = this.aggregateRuntimeData(runtimeData, this.runtimeAggregation);
+        if (this.dataWorker && runtimeData.length > 1000) {
+            // Use worker for large datasets
+            this.dataWorker.postMessage({
+                type: 'aggregateRuntime',
+                data: {
+                    runtimeData: runtimeData,
+                    aggregationType: this.runtimeAggregation
+                }
+            });
+        } else {
+            // Process synchronously for small datasets
+            const aggregatedRuntimeData = this.aggregateRuntimeData(runtimeData, this.runtimeAggregation);
+            this.updateRuntimeChartWithData(aggregatedRuntimeData, this.runtimeAggregation);
+        }
+    }
+
+    updateRuntimeChart() {
+        const timeSeriesData = this.getFilteredTimeSeriesData();
+        this.createRuntimeChart(timeSeriesData);
+    }
+
+    updateRuntimeChartWithData(aggregatedData, aggregationType) {
         const runtimeLabel = this.getRuntimeChartLabel();
+        
+        if (this.charts.runtime) {
+            this.charts.runtime.destroy();
+        }
         
         this.charts.runtime = new Chart(document.getElementById('runtimeChart'), {
             type: 'bar',
             data: {
                 datasets: [
                     {
-                        label: `Cooling Time (${this.runtimeAggregation === '15min' ? 'minutes' : 'hours'})`,
-                        data: aggregatedRuntimeData.map(d => ({ 
+                        label: `Cooling Time (${aggregationType === '15min' ? 'minutes' : 'hours'})`,
+                        data: aggregatedData.map(d => ({ 
                             x: d.x, 
-                            y: this.convertRuntimeForDisplay(d.coolingTime, this.runtimeAggregation)
+                            y: this.convertRuntimeForDisplay(d.coolingTime, aggregationType)
                         })),
                         backgroundColor: 'rgba(69, 183, 209, 0.7)',
                         borderColor: '#45b7d1',
                         borderWidth: 1
                     },
                     {
-                        label: `Heating Time (${this.runtimeAggregation === '15min' ? 'minutes' : 'hours'})`,
-                        data: aggregatedRuntimeData.map(d => ({ 
+                        label: `Heating Time (${aggregationType === '15min' ? 'minutes' : 'hours'})`,
+                        data: aggregatedData.map(d => ({ 
                             x: d.x, 
-                            y: this.convertRuntimeForDisplay(d.heatingTime, this.runtimeAggregation)
+                            y: this.convertRuntimeForDisplay(d.heatingTime, aggregationType)
                         })),
                         backgroundColor: 'rgba(243, 156, 18, 0.7)',
                         borderColor: '#f39c12',
@@ -518,18 +833,49 @@ class NestDataViewer {
                 }
             }
         });
+    }
+
+    createCorrelationChart(timeSeriesData) {
+        // Pre-process correlation data to avoid mapping during aggregation
+        const correlationData = [];
+        for (let i = 0; i < timeSeriesData.length; i++) {
+            const d = timeSeriesData[i];
+            correlationData.push({
+                x: d.x,
+                outdoorTemp: d.outdoorTemp,
+                coolingTime: d.coolingTime,
+                heatingTime: d.heatingTime
+            });
+        }
         
-        // Outdoor Temperature vs HVAC Runtime Correlation Chart
-        const correlationData = timeSeriesData.map(d => ({
-            x: d.x,
-            outdoorTemp: d.outdoorTemp,
-            coolingTime: d.coolingTime,
-            heatingTime: d.heatingTime
-        }));
-        
-        const aggregatedCorrelationData = this.aggregateTemperatureData(correlationData, this.correlationAggregation);
+        if (this.dataWorker && correlationData.length > 1000) {
+            // Use worker for large datasets
+            this.dataWorker.postMessage({
+                type: 'aggregateTemperature',
+                data: {
+                    temperatureData: correlationData,
+                    aggregationType: this.correlationAggregation
+                }
+            });
+        } else {
+            // Process synchronously for small datasets
+            const aggregatedCorrelationData = this.aggregateTemperatureData(correlationData, this.correlationAggregation);
+            this.updateCorrelationChartWithData(aggregatedCorrelationData, this.correlationAggregation);
+        }
+    }
+
+    updateCorrelationChart() {
+        const timeSeriesData = this.getFilteredTimeSeriesData();
+        this.createCorrelationChart(timeSeriesData);
+    }
+
+    updateCorrelationChartWithData(aggregatedData, aggregationType) {
         const correlationRuntimeLabel = this.getRuntimeChartLabel();
         const correlationTempLabel = `Temperature (${this.temperatureUnit === 'F' ? '°F' : '°C'})`;
+        
+        if (this.charts.correlation) {
+            this.charts.correlation.destroy();
+        }
         
         this.charts.correlation = new Chart(document.getElementById('correlationChart'), {
             type: 'line',
@@ -537,7 +883,7 @@ class NestDataViewer {
                 datasets: [
                     {
                         label: 'Outdoor Temperature',
-                        data: aggregatedCorrelationData.map(d => ({ x: d.x, y: d.outdoorTemp })),
+                        data: aggregatedData.map(d => ({ x: d.x, y: d.outdoorTemp })),
                         borderColor: '#ff9500',
                         backgroundColor: 'rgba(255, 149, 0, 0.1)',
                         borderWidth: 3,
@@ -548,10 +894,10 @@ class NestDataViewer {
                         yAxisID: 'y'
                     },
                     {
-                        label: `Total HVAC Runtime (${this.correlationAggregation === '15min' ? 'minutes' : 'hours'})`,
-                        data: aggregatedCorrelationData.map(d => ({ 
+                        label: `Total HVAC Runtime (${aggregationType === '15min' ? 'minutes' : 'hours'})`,
+                        data: aggregatedData.map(d => ({ 
                             x: d.x, 
-                            y: this.convertRuntimeForDisplay(d.coolingTime + d.heatingTime, this.correlationAggregation)
+                            y: this.convertRuntimeForDisplay(d.coolingTime + d.heatingTime, aggregationType)
                         })),
                         type: 'bar',
                         backgroundColor: 'rgba(155, 89, 182, 0.6)',
@@ -560,10 +906,10 @@ class NestDataViewer {
                         yAxisID: 'y1'
                     },
                     {
-                        label: `Cooling Time (${this.correlationAggregation === '15min' ? 'minutes' : 'hours'})`,
-                        data: aggregatedCorrelationData.map(d => ({ 
+                        label: `Cooling Time (${aggregationType === '15min' ? 'minutes' : 'hours'})`,
+                        data: aggregatedData.map(d => ({ 
                             x: d.x, 
-                            y: this.convertRuntimeForDisplay(d.coolingTime, this.correlationAggregation)
+                            y: this.convertRuntimeForDisplay(d.coolingTime, aggregationType)
                         })),
                         type: 'bar',
                         backgroundColor: 'rgba(69, 183, 209, 0.6)',
@@ -667,6 +1013,23 @@ class NestDataViewer {
                 }
             }
         });
+    }
+
+    recreateChartsWithNewUnits() {
+        // When temperature unit changes, we need to regenerate time series data
+        if (this.dataWorker && this.data.length > 0) {
+            this.dataWorker.postMessage({
+                type: 'prepareChartData',
+                data: {
+                    rawData: this.data,
+                    temperatureUnit: this.temperatureUnit
+                }
+            });
+        } else {
+            // Fallback: regenerate synchronously
+            this.timeSeriesData = [];
+            this.createCharts();
+        }
     }
 
     aggregateRuntimeData(data, aggregationType) {
