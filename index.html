@@ -6,7 +6,7 @@
     <title>Nest Data Viewer - Visualize Your HVAC Runtime Data</title>
     
     <!-- SEO Meta Tags -->
-    <meta name="description" content="Free web tool to visualize and analyze your Google Nest thermostat HVAC runtime data. Upload your Nest data from Google Takeout and get interactive charts showing temperature trends, humidity levels, and energy usage patterns.">
+    <meta name="description" content="Free web tool to visualize and analyze your Google Nest thermostat HVAC runtime data. Upload your Nest data from Google Takeout and get interactive charts showing temperature trends and energy usage patterns.">
     <meta name="keywords" content="Nest thermostat, HVAC data, energy analysis, Google Takeout, temperature visualization, smart home analytics, heating cooling runtime, energy efficiency">
     <meta name="author" content="Nest Data Viewer">
     <meta name="robots" content="index, follow">
@@ -16,7 +16,7 @@
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://rafistrauss.github.io/nest-viewer/">
     <meta property="og:title" content="Nest Data Viewer - Visualize Your HVAC Runtime Data">
-    <meta property="og:description" content="Free web tool to visualize and analyze your Google Nest thermostat HVAC runtime data. Upload your data and get interactive charts showing temperature trends, humidity levels, and energy usage patterns.">
+    <meta property="og:description" content="Free web tool to visualize and analyze your Google Nest thermostat HVAC runtime data. Upload your data and get interactive charts showing temperature trends and energy usage patterns.">
     <meta property="og:image" content="https://rafistrauss.github.io/nest-viewer/temperature_analysis_og_preview.png">
     <meta property="og:image:width" content="1200">
     <meta property="og:image:height" content="630">
@@ -73,7 +73,8 @@
       "features": [
         "Interactive temperature charts",
         "HVAC runtime analysis",
-        "Humidity level tracking",
+        "Temperature trend analysis",
+        "Energy usage visualization",
         "Energy usage visualization",
         "Privacy-focused local processing"
       ]
@@ -1087,13 +1088,6 @@
             </div>
 
             <div class="chart-container">
-                <h3 class="chart-title">💨 Humidity Levels</h3>
-                <div class="chart-wrapper">
-                    <canvas id="humidityChart"></canvas>
-                </div>
-            </div>
-
-            <div class="chart-container">
                 <h3 class="chart-title">⚡ HVAC Runtime</h3>
                 <div class="chart-controls">
                     <label class="control-label">Aggregate by:</label>
@@ -1115,6 +1109,12 @@
 
             <div class="chart-container">
                 <h3 class="chart-title">🌡️❄️ Outdoor Temperature vs HVAC Runtime</h3>
+                <div class="efficiency-explanation">
+                    <p style="font-size: 0.9em; color: #666; margin: 10px 0; line-height: 1.4;">
+                        <strong>💡 About HVAC Efficiency:</strong> The red dashed line shows <em>efficiency</em> - how much runtime your system needs per degree of outdoor temperature difference from 70°F (21°C). 
+                        Higher spikes may indicate extreme weather, equipment strain, or potential inefficiency. Compare across different time periods to spot patterns.
+                    </p>
+                </div>
                 <div class="chart-controls">
                     <label class="control-label">Aggregate by:</label>
                     <div class="aggregation-toggle">

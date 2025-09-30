@@ -500,7 +500,6 @@ class NestDataViewer {
         // Create all charts
         this.createTemperatureChart(dataToUse);
         this.createTargetChart(dataToUse);
-        this.createHumidityChart(dataToUse);
         this.createRuntimeChart(dataToUse);
         this.createCorrelationChart(dataToUse);
     }
@@ -512,7 +511,6 @@ class NestDataViewer {
         const charts = [
             { name: 'Temperature Chart', method: () => this.createTemperatureChart(dataToUse) },
             { name: 'Target Chart', method: () => this.createTargetChart(dataToUse) },
-            { name: 'Humidity Chart', method: () => this.createHumidityChart(dataToUse) },
             { name: 'Runtime Chart', method: () => this.createRuntimeChart(dataToUse) },
             { name: 'Correlation Chart', method: () => this.createCorrelationChart(dataToUse) }
         ];
@@ -713,49 +711,6 @@ class NestDataViewer {
         });
     }
 
-    createHumidityChart(timeSeriesData) {
-        // Pre-process data to avoid mapping during chart creation
-        const indoorHumidityData = [];
-        const outdoorHumidityData = [];
-        
-        for (let i = 0; i < timeSeriesData.length; i++) {
-            const d = timeSeriesData[i];
-            indoorHumidityData.push({ x: d.x, y: d.indoorHumidity });
-            outdoorHumidityData.push({ x: d.x, y: d.outdoorHumidity });
-        }
-        
-        this.charts.humidity = new Chart(document.getElementById('humidityChart'), {
-            type: 'line',
-            data: {
-                datasets: [
-                    {
-                        label: 'Indoor Humidity',
-                        data: indoorHumidityData,
-                        borderColor: '#9b59b6',
-                        backgroundColor: 'rgba(155, 89, 182, 0.1)',
-                        borderWidth: 2,
-                        fill: false,
-                        tension: 0.3,
-                        pointRadius: 0,
-                        pointHoverRadius: 4
-                    },
-                    {
-                        label: 'Outdoor Humidity',
-                        data: outdoorHumidityData,
-                        borderColor: '#3498db',
-                        backgroundColor: 'rgba(52, 152, 219, 0.1)',
-                        borderWidth: 2,
-                        fill: false,
-                        tension: 0.3,
-                        pointRadius: 0,
-                        pointHoverRadius: 4
-                    }
-                ]
-            },
-            options: this.getCommonChartOptions('Humidity (%)')
-        });
-    }
-
     createRuntimeChart(timeSeriesData) {
         // Pre-process runtime data to avoid mapping during aggregation
         const runtimeData = [];
@@ -873,9 +828,66 @@ class NestDataViewer {
         this.createCorrelationChart(timeSeriesData);
     }
 
+    calculateRuntimeIntensity(aggregatedData, aggregationType) {
+        // Calculate HVAC efficiency metric - runtime per degree of outdoor temperature deviation
+        // This shows how hard the system works relative to weather conditions
+        // Higher values may indicate inefficiency, equipment issues, or extreme conditions
+        
+        const runtimeIntensityData = [];
+        let maxIntensity = 0;
+        let avgIntensity = 0;
+        let totalValidPoints = 0;
+        
+        for (let i = 0; i < aggregatedData.length; i++) {
+            const d = aggregatedData[i];
+            const totalRuntime = d.coolingTime + d.heatingTime;
+            
+            // Calculate intensity based on how extreme the outdoor temperature is
+            // Using 70°F (21°C) as a comfortable baseline - typical thermostat setting
+            const baselineTemp = this.temperatureUnit === 'F' ? 70 : 21;
+            const tempDifference = Math.abs(d.outdoorTemp - baselineTemp);
+            
+            // For very mild conditions (< 2 degrees from baseline), efficiency becomes less meaningful
+            // as runtime may be minimal maintenance cycles rather than active conditioning
+            const effectiveTempDiff = Math.max(tempDifference, 2);
+            
+            // Runtime intensity = minutes (or hours) of runtime per degree of temperature difference
+            const runtimeIntensity = this.convertRuntimeForDisplay(totalRuntime, aggregationType) / effectiveTempDiff;
+            
+            // Track statistics for diagnostic insights
+            maxIntensity = Math.max(maxIntensity, runtimeIntensity);
+            avgIntensity += runtimeIntensity;
+            totalValidPoints++;
+            
+            runtimeIntensityData.push({
+                x: d.x,
+                y: runtimeIntensity,
+                tempDifference: tempDifference,
+                totalRuntime: this.convertRuntimeForDisplay(totalRuntime, aggregationType),
+                outdoorTemp: d.outdoorTemp
+            });
+        }
+        
+        // Calculate average for context
+        avgIntensity = totalValidPoints > 0 ? avgIntensity / totalValidPoints : 0;
+        
+        // Store diagnostic info for tooltip enhancement
+        this.lastIntensityStats = {
+            max: maxIntensity,
+            avg: avgIntensity,
+            aggregationType: aggregationType,
+            unit: aggregationType === '15min' ? 'min/°' : 'hrs/°'
+        };
+        
+        return runtimeIntensityData;
+    }
+
     updateCorrelationChartWithData(aggregatedData, aggregationType) {
         const correlationRuntimeLabel = this.getRuntimeChartLabel();
         const correlationTempLabel = `Temperature (${this.temperatureUnit === 'F' ? '°F' : '°C'})`;
+        
+        // Calculate runtime intensity for the line chart (shows efficiency/demand)
+        const runtimeIntensityData = this.calculateRuntimeIntensity(aggregatedData, aggregationType);
         
         if (this.charts.correlation) {
             this.charts.correlation.destroy();
@@ -896,6 +908,20 @@ class NestDataViewer {
                         pointRadius: 0,
                         pointHoverRadius: 4,
                         yAxisID: 'y'
+                    },
+                    {
+                        label: `HVAC Efficiency (${aggregationType === '15min' ? 'min' : 'hrs'}/°${this.temperatureUnit})`,
+                        data: runtimeIntensityData,
+                        type: 'line',
+                        borderColor: '#e74c3c',
+                        backgroundColor: 'rgba(231, 76, 60, 0.1)',
+                        borderWidth: 3,
+                        fill: false,
+                        tension: 0.4,
+                        pointRadius: 0,
+                        pointHoverRadius: 4,
+                        yAxisID: 'y2',
+                        borderDash: [5, 5]
                     },
                     {
                         label: `Total HVAC Runtime (${aggregationType === '15min' ? 'minutes' : 'hours'})`,
@@ -950,6 +976,38 @@ class NestDataViewer {
                             title: function(tooltipItems) {
                                 const date = new Date(tooltipItems[0].parsed.x);
                                 return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+                            },
+                            afterBody: (tooltipItems) => {
+                                // Add efficiency interpretation for the efficiency line chart
+                                const efficiencyItem = tooltipItems.find(item => 
+                                    item.dataset.label && item.dataset.label.includes('Efficiency')
+                                );
+                                
+                                if (efficiencyItem && this.lastIntensityStats) {
+                                    const stats = this.lastIntensityStats;
+                                    const value = efficiencyItem.parsed.y;
+                                    const avgValue = stats.avg;
+                                    
+                                    let interpretation = '\n📊 Efficiency Analysis:';
+                                    
+                                    if (value > avgValue * 1.5) {
+                                        interpretation += '\n⚠️  High demand - system working hard';
+                                        interpretation += '\n   May indicate extreme weather or inefficiency';
+                                    } else if (value > avgValue * 1.2) {
+                                        interpretation += '\n📈 Above average demand';
+                                        interpretation += '\n   System responding to conditions';
+                                    } else if (value < avgValue * 0.7) {
+                                        interpretation += '\n✅ Low demand - efficient operation';
+                                        interpretation += '\n   Mild conditions or good efficiency';
+                                    } else {
+                                        interpretation += '\n➖ Normal operation range';
+                                    }
+                                    
+                                    interpretation += `\n   Period avg: ${avgValue.toFixed(1)} ${stats.unit}`;
+                                    
+                                    return interpretation;
+                                }
+                                return '';
                             }
                         }
                     },
@@ -1044,6 +1102,15 @@ class NestDataViewer {
                         },
                         ticks: {
                             color: '#9b59b6'
+                        }
+                    },
+                    y2: {
+                        type: 'linear',
+                        display: false, // Hide this axis to avoid clutter
+                        position: 'right',
+                        beginAtZero: true,
+                        grid: {
+                            drawOnChartArea: false,
                         }
                     }
                 }
