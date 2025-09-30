@@ -1025,7 +1025,21 @@
                     <small>Use mouse wheel to zoom, drag to pan, or drag to select a range</small>
                 </p>
             </div>
-            <div class="filter-controls">
+            <div class="filter-controls" style="flex-direction: column; align-items: stretch;">
+                <div class="date-input-group" style="width: 100%; max-width: 350px; margin: 0 auto;">
+                    <label for="dateRangeCombo">Date Range or Phrase:</label>
+                    <div class="date-combo-wrapper" style="position: relative; width: 100%;">
+                        <span id="dateRangePill" class="date-pill" style="position: absolute; left: 8px; top: 50%; transform: translateY(-50%); background: #667eea; color: white; border-radius: 12px; width: 44px; height: 24px; display: flex; align-items: center; justify-content: center; font-size: 0.95em; font-weight: 500; z-index: 2; pointer-events: none; text-align: center;">-</span>
+                        <input id="dateRangeCombo" class="date-input" type="text" placeholder="e.g. past month, last 7 days, 2024-01-01 to 2024-02-01 or select preset" autocomplete="off" style="width: 100%; padding-left: 60px;">
+                        <div id="datePresetDropdownCustom" class="custom-dropdown" style="display: none; position: absolute; top: 100%; left: 0; right: 0; z-index: 10; background: white; border: 1px solid #ddd; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
+                            <div class="dropdown-option" data-value="last24h" style="padding: 10px 16px; cursor: pointer;">Last 24 Hours</div>
+                            <div class="dropdown-option" data-value="last7d" style="padding: 10px 16px; cursor: pointer;">Last Week</div>
+                            <div class="dropdown-option" data-value="last30d" style="padding: 10px 16px; cursor: pointer;">Last Month</div>
+                            <div class="dropdown-option" data-value="thisYear" style="padding: 10px 16px; cursor: pointer;">This Year</div>
+                            <div class="dropdown-option" data-value="all" style="padding: 10px 16px; cursor: pointer;">All Time</div>
+                        </div>
+                    </div>
+                </div>
                 <div class="date-input-group">
                     <label for="startDate">Start Date:</label>
                     <input type="datetime-local" id="startDate" class="date-input">
@@ -1039,12 +1053,6 @@
                     <button id="resetFilter" class="filter-btn reset-btn">Show All Data</button>
                     <button id="resetZoom" class="filter-btn reset-btn">Reset Chart Zoom</button>
                 </div>
-            </div>
-            <div class="quick-filters">
-                <span class="quick-filter-label">Quick filters:</span>
-                <button class="quick-filter" data-days="1">Last 24 Hours</button>
-                <button class="quick-filter" data-days="7">Last Week</button>
-                <button class="quick-filter" data-days="30">Last Month</button>
             </div>
         </div>
 

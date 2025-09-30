@@ -1,4 +1,37 @@
 class NestDataViewer {
+    setDateRangePill(value) {
+        const pill = document.getElementById('dateRangePill');
+        let display = '';
+        let match;
+        value = value.trim().toLowerCase();
+        if (value === 'last24h' || value === 'past 24 hours' || value === 'past day') {
+            display = '24h';
+        } else if (value === 'last7d' || value === 'past week') {
+            display = '7d';
+        } else if (value === 'last30d' || value === 'past month') {
+            display = '1mo';
+        } else if (value === 'thisyear' || value === 'this year') {
+            display = 'YTD';
+        } else if (value === 'all' || value === 'all time') {
+            display = 'All';
+        } else if ((match = value.match(/last\s*(\d+)\s*(minute|min|m)/))) {
+            display = match[1] + 'm';
+        } else if ((match = value.match(/last\s*(\d+)\s*(hour|hr|h)/))) {
+            display = match[1] + 'h';
+        } else if ((match = value.match(/last\s*(\d+)\s*(day|days|d)/))) {
+            display = match[1] + 'd';
+        } else if ((match = value.match(/last\s*(\d+)\s*(week|weeks|w)/))) {
+            display = match[1] + 'w';
+        } else if ((match = value.match(/last\s*(\d+)\s*(month|months|mo)/))) {
+            display = match[1] + 'mo';
+        } else if ((match = value.match(/last\s*(\d+)\s*(year|years|y)/))) {
+            display = match[1] + 'y';
+        } else if ((match = value.match(/(\d{4}-\d{2}-\d{2})\s*(to|-)\s*(\d{4}-\d{2}-\d{2})/))) {
+            display = 'Range';
+        }
+        pill.textContent = display || '-';
+        pill.style.display = 'flex';
+    }
     constructor() {
         this.data = [];
         this.filteredData = [];
@@ -49,88 +82,105 @@ class NestDataViewer {
             this.resetAllChartsZoom();
         });
 
-        // Quick filter listeners
-        document.querySelectorAll('.quick-filter').forEach(button => {
-            button.addEventListener('click', (event) => {
-                const days = parseInt(event.target.getAttribute('data-days'));
-                this.applyQuickFilter(days);
-            });
-        });
+        // Combined input and custom dropdown listeners
+        const comboInput = document.getElementById('dateRangeCombo');
+        const dropdown = document.getElementById('datePresetDropdownCustom');
 
-        // Runtime aggregation listeners with debouncing
-        const runtimeAggInputs = document.querySelectorAll('input[name="runtimeAggregation"]');
-        runtimeAggInputs.forEach(input => {
-            input.addEventListener('change', (event) => {
-                this.runtimeAggregation = event.target.value;
-                if (this.data.length > 0) {
-                    this.debouncedUpdate(() => {
-                        this.updateRuntimeChart();
-                    });
-                }
-            });
+        comboInput.addEventListener('focus', () => {
+            dropdown.style.display = 'block';
         });
-
-        // Correlation aggregation listeners with debouncing
-        const correlationAggInputs = document.querySelectorAll('input[name="correlationAggregation"]');
-        correlationAggInputs.forEach(input => {
-            input.addEventListener('change', (event) => {
-                this.correlationAggregation = event.target.value;
-                if (this.data.length > 0) {
-                    this.debouncedUpdate(() => {
-                        this.updateCorrelationChart();
-                    });
-                }
-            });
+        comboInput.addEventListener('click', () => {
+            dropdown.style.display = 'block';
         });
-
-        // Hot temperature threshold listeners with debouncing
-        document.getElementById('enableHotThreshold').addEventListener('change', (event) => {
-            if (this.data.length > 0) {
-                this.debouncedUpdate(() => {
-                    this.updateTemperatureChart();
-                });
+        comboInput.addEventListener('input', () => {
+            dropdown.style.display = comboInput.value.trim() ? 'none' : 'block';
+        });
+        comboInput.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') {
+                this.handlePhraseInput(comboInput.value);
+                dropdown.style.display = 'none';
             }
-        });
-
-        document.getElementById('hotThreshold').addEventListener('input', (event) => {
-            if (this.data.length > 0) {
-                this.debouncedUpdate(() => {
-                    this.updateTemperatureChart();
-                });
-            }
-        });
-
-        // Help modal listeners
-        document.getElementById('helpButton').addEventListener('click', () => {
-            document.getElementById('helpModal').style.display = 'block';
-        });
-
-        document.getElementById('closeModal').addEventListener('click', () => {
-            document.getElementById('helpModal').style.display = 'none';
-        });
-
-        // Close modal when clicking outside of it
-        window.addEventListener('click', (event) => {
-            const modal = document.getElementById('helpModal');
-            if (event.target === modal) {
-                modal.style.display = 'none';
-            }
-        });
-
-        // Close modal with Escape key
-        document.addEventListener('keydown', (event) => {
             if (event.key === 'Escape') {
-                document.getElementById('helpModal').style.display = 'none';
+                dropdown.style.display = 'none';
             }
         });
-
-        // Initialize drag and drop
-        this.initializeDragAndDrop();
-
-        // Sample data button listener
-        document.getElementById('loadSampleData').addEventListener('click', () => {
-            this.loadSampleData();
+        comboInput.addEventListener('blur', () => {
+            setTimeout(() => { dropdown.style.display = 'none'; }, 150);
         });
+
+        dropdown.querySelectorAll('.dropdown-option').forEach(option => {
+            option.addEventListener('mousedown', (event) => {
+                // Use mousedown to avoid blur hiding dropdown before click
+                const value = event.target.getAttribute('data-value');
+                this.handlePresetDropdown(value);
+                comboInput.value = event.target.textContent;
+                dropdown.style.display = 'none';
+            });
+        });
+
+    }
+
+    handlePresetDropdown(value) {
+    this.setDateRangePill(value);
+        if (!this.data.length) return;
+        const endDate = this.data[this.data.length - 1].timestamp;
+        let startDate;
+        if (value === 'last24h') {
+            startDate = new Date(endDate.getTime() - (1 * 24 * 60 * 60 * 1000));
+        } else if (value === 'last7d') {
+            startDate = new Date(endDate.getTime() - (7 * 24 * 60 * 60 * 1000));
+        } else if (value === 'last30d') {
+            startDate = new Date(endDate.getTime() - (30 * 24 * 60 * 60 * 1000));
+        } else if (value === 'thisYear') {
+            startDate = new Date(endDate.getFullYear(), 0, 1);
+        } else if (value === 'all') {
+            startDate = this.data[0].timestamp;
+        } else {
+            return;
+        }
+        document.getElementById('startDate').value = this.formatDateForInput(startDate);
+        document.getElementById('endDate').value = this.formatDateForInput(endDate);
+        this.applyDateFilter();
+    }
+
+    handlePhraseInput(phrase) {
+        this.setDateRangePill(phrase);
+        if (!phrase.trim() || !this.data.length) return;
+        const endDate = this.data[this.data.length - 1].timestamp;
+        let startDate = null;
+        let match;
+        phrase = phrase.trim().toLowerCase();
+        if (phrase === 'all' || phrase === 'all time') {
+            startDate = this.data[0].timestamp;
+        } else if (phrase === 'this year') {
+            startDate = new Date(endDate.getFullYear(), 0, 1);
+        } else if ((match = phrase.match(/last\s*(\d+)\s*(day|days|d)/))) {
+            startDate = new Date(endDate.getTime() - (parseInt(match[1]) * 24 * 60 * 60 * 1000));
+        } else if ((match = phrase.match(/last\s*(\d+)\s*(week|weeks|w)/))) {
+            startDate = new Date(endDate.getTime() - (parseInt(match[1]) * 7 * 24 * 60 * 60 * 1000));
+        } else if ((match = phrase.match(/last\s*(\d+)\s*(month|months|m)/))) {
+            startDate = new Date(endDate.getTime() - (parseInt(match[1]) * 30 * 24 * 60 * 60 * 1000));
+        } else if (phrase === 'past month') {
+            startDate = new Date(endDate.getTime() - (30 * 24 * 60 * 60 * 1000));
+        } else if (phrase === 'past week') {
+            startDate = new Date(endDate.getTime() - (7 * 24 * 60 * 60 * 1000));
+        } else if (phrase === 'past day' || phrase === 'past 24 hours') {
+            startDate = new Date(endDate.getTime() - (1 * 24 * 60 * 60 * 1000));
+        } else if ((match = phrase.match(/(\d{4}-\d{2}-\d{2})\s*(to|-)\s*(\d{4}-\d{2}-\d{2})/))) {
+            startDate = new Date(match[1]);
+            const endDatePhrase = new Date(match[3]);
+            if (!isNaN(startDate) && !isNaN(endDatePhrase)) {
+                document.getElementById('startDate').value = this.formatDateForInput(startDate);
+                document.getElementById('endDate').value = this.formatDateForInput(endDatePhrase);
+                this.applyDateFilter();
+                return;
+            }
+        }
+        if (startDate) {
+            document.getElementById('startDate').value = this.formatDateForInput(startDate);
+            document.getElementById('endDate').value = this.formatDateForInput(endDate);
+            this.applyDateFilter();
+        }
     }
 
     initializeWorker() {
@@ -1542,24 +1592,7 @@ class NestDataViewer {
         }, 100);
     }
 
-    applyQuickFilter(days) {
-        if (this.data.length === 0) return;
-        
-        const endDate = this.data[this.data.length - 1].timestamp;
-        const startDate = new Date(endDate.getTime() - (days * 24 * 60 * 60 * 1000));
-        
-        this.filteredData = this.data.filter(record => 
-            record.timestamp >= startDate && record.timestamp <= endDate
-        );
-        
-        // Update the date inputs to reflect the quick filter
-        document.getElementById('startDate').value = this.formatDateForInput(startDate);
-        document.getElementById('endDate').value = this.formatDateForInput(endDate);
-        
-        this.hideError();
-        this.updateStats();
-        this.createCharts();
-    }
+    // ...existing code...
 }
 
 // Initialize the application
