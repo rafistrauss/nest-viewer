@@ -3,11 +3,17 @@ class DataProcessor {
     static parseJSONLChunk(lines, startIndex, chunkSize) {
         const data = [];
         const endIndex = Math.min(startIndex + chunkSize, lines.length);
+        let invalidJsonLines = 0;
+        let missingFieldsLines = 0;
+        let emptyLines = 0;
         
         for (let i = startIndex; i < endIndex; i++) {
             try {
                 let line = lines[i].trim();
-                if (!line) continue;
+                if (!line) {
+                    emptyLines++;
+                    continue;
+                }
 
                 const fixed = line
                     .replace(/^"(.*)"$/, '$1') // Remove outer quotes
@@ -19,14 +25,24 @@ class DataProcessor {
                 if (record.interval_start && record.indoor_temp !== undefined && record.outdoor_temp !== undefined && record.outdoor_temp !== null) {
                     record.timestamp = new Date(record.interval_start);
                     data.push(record);
+                } else {
+                    missingFieldsLines++;
                 }
             } catch (error) {
-                // Skip invalid lines
+                // Track invalid JSON lines
+                invalidJsonLines++;
                 console.warn(`Error parsing line ${i + 1}:`, error);
             }
         }
         
-        return data;
+        return {
+            data,
+            stats: {
+                invalidJsonLines,
+                missingFieldsLines,
+                emptyLines
+            }
+        };
     }
 
     static aggregateRuntimeData(data, aggregationType) {
@@ -174,11 +190,17 @@ self.onmessage = function(e) {
                 const lines = text.trim().split('\n');
                 const totalLines = lines.length;
                 let allData = [];
+                let totalInvalidJsonLines = 0;
+                let totalMissingFieldsLines = 0;
+                let totalEmptyLines = 0;
                 
                 // Process in chunks to avoid blocking
                 for (let i = 0; i < totalLines; i += chunkSize) {
-                    const chunkData = DataProcessor.parseJSONLChunk(lines, i, chunkSize);
-                    allData = allData.concat(chunkData);
+                    const result = DataProcessor.parseJSONLChunk(lines, i, chunkSize);
+                    allData = allData.concat(result.data);
+                    totalInvalidJsonLines += result.stats.invalidJsonLines;
+                    totalMissingFieldsLines += result.stats.missingFieldsLines;
+                    totalEmptyLines += result.stats.emptyLines;
                     
                     // Report progress
                     const progress = Math.min(100, Math.round(((i + chunkSize) / totalLines) * 100));
@@ -190,12 +212,45 @@ self.onmessage = function(e) {
                     });
                 }
                 
+                // Check if we got any valid data
+                if (allData.length === 0) {
+                    const errorParts = [];
+                    if (totalInvalidJsonLines > 0) {
+                        errorParts.push(`${totalInvalidJsonLines} line(s) with invalid JSON`);
+                    }
+                    if (totalMissingFieldsLines > 0) {
+                        errorParts.push(`${totalMissingFieldsLines} line(s) missing required fields`);
+                    }
+                    if (totalEmptyLines > 0 && totalInvalidJsonLines === 0 && totalMissingFieldsLines === 0) {
+                        self.postMessage({
+                            type: 'error',
+                            error: 'The file is empty or contains only blank lines. Please check that you selected the correct file.'
+                        });
+                        break;
+                    }
+                    
+                    const errorMsg = errorParts.length > 0 
+                        ? `No valid HVAC runtime records found. Issues: ${errorParts.join(', ')}. The file should contain lines with fields: interval_start, indoor_temp, outdoor_temp, and other HVAC runtime data from Google Nest.`
+                        : 'No valid data found in file. Make sure you uploaded a Nest HVAC runtime data file from Google Takeout.';
+                    
+                    self.postMessage({
+                        type: 'error',
+                        error: errorMsg
+                    });
+                    break;
+                }
+                
                 // Sort by timestamp
                 allData.sort((a, b) => a.timestamp - b.timestamp);
                 
                 self.postMessage({
                     type: 'parseComplete',
-                    data: allData
+                    data: allData,
+                    stats: {
+                        invalidJsonLines: totalInvalidJsonLines,
+                        missingFieldsLines: totalMissingFieldsLines,
+                        emptyLines: totalEmptyLines
+                    }
                 });
                 break;
                 

@@ -294,6 +294,81 @@
             display: block;
         }
 
+        .validation-warning {
+            display: none;
+            background: #fff9e6;
+            color: #856404;
+            border: 1px solid #ffc107;
+            border-radius: 10px;
+            margin: 20px 0;
+            overflow: hidden;
+        }
+
+        .validation-warning.expanded .validation-warning-details {
+            max-height: 500px;
+            opacity: 1;
+            padding: 12px 15px;
+        }
+
+        .validation-warning-header {
+            display: flex;
+            align-items: center;
+            padding: 15px;
+            cursor: pointer;
+            background: #fffaf0;
+            border-bottom: 1px solid #ffc107;
+            user-select: none;
+        }
+
+        .validation-warning-header:hover {
+            background: #fffbf5;
+        }
+
+        .warning-icon {
+            font-size: 1.2rem;
+            margin-right: 10px;
+        }
+
+        .warning-title {
+            flex: 1;
+            font-weight: 600;
+        }
+
+        .warning-toggle {
+            background: none;
+            border: none;
+            color: #856404;
+            cursor: pointer;
+            font-size: 1rem;
+            padding: 0 5px;
+            transition: transform 0.3s ease;
+        }
+
+        .validation-warning.expanded .warning-toggle {
+            transform: rotate(180deg);
+        }
+
+        .validation-warning-details {
+            max-height: 0;
+            opacity: 0;
+            overflow: hidden;
+            transition: all 0.3s ease;
+            background: white;
+        }
+
+        .validation-warning-details p {
+            margin: 8px 0;
+        }
+
+        .validation-warning-details ul {
+            margin: 8px 0 8px 20px;
+            padding-left: 0;
+        }
+
+        .validation-warning-details li {
+            margin: 4px 0;
+        }
+
         .info-text {
             color: #666;
             font-size: 0.9rem;
@@ -1015,6 +1090,15 @@
             </div>
             
             <div id="error" class="error"></div>
+            
+            <div id="validationWarning" class="validation-warning" style="display: none;">
+                <div class="validation-warning-header" onclick="this.parentElement.classList.toggle('expanded')">
+                    <span class="warning-icon">⚠️</span>
+                    <span class="warning-title">Some records were skipped</span>
+                    <button class="warning-toggle" title="Toggle details">▼</button>
+                </div>
+                <div id="validationWarningDetails" class="validation-warning-details"></div>
+            </div>
         </div>
 
         <div id="filterSection" class="filter-section" style="display: none;">

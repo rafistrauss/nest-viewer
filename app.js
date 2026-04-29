@@ -10,6 +10,7 @@ class NestDataViewer {
         this.isProcessing = false;
         this.dataWorker = null;
         this.updateTimeout = null; // For debouncing
+        this.parseStats = null; // Track parsing statistics
         this.initializeEventListeners();
         this.initializeWorker();
     }
@@ -149,7 +150,7 @@ class NestDataViewer {
     }
 
     handleWorkerMessage(message) {
-        const { type, data, progress, error, aggregationType } = message;
+        const { type, data, progress, error, aggregationType, stats } = message;
         
         switch (type) {
             case 'progress':
@@ -160,6 +161,8 @@ class NestDataViewer {
                 this.updateProgressStep('processing');
                 this.data = data;
                 this.filteredData = [...this.data];
+                this.parseStats = stats; // Store parsing statistics
+                this.showValidationWarning(); // Show warning if there were skipped lines
                 // Use setTimeout to allow UI to update before heavy processing
                 setTimeout(() => {
                     this.prepareChartData();
@@ -354,6 +357,12 @@ class NestDataViewer {
         this.isProcessing = true;
 
         try {
+            // Validate file format first
+            const validationError = this.validateFile(file);
+            if (validationError) {
+                throw new Error(validationError);
+            }
+            
             const text = await this.readFile(file);
             
             if (this.dataWorker) {
@@ -368,10 +377,32 @@ class NestDataViewer {
             }
             
         } catch (error) {
-            this.showError(`Error processing file: ${error.message}`);
+            this.showError(error.message);
             this.showLoading(false);
             this.isProcessing = false;
         }
+    }
+
+    validateFile(file) {
+        const maxFileSize = 100 * 1024 * 1024; // 100MB
+        
+        // Check file size
+        if (file.size > maxFileSize) {
+            return `File is too large (${(file.size / 1024 / 1024).toFixed(2)}MB). Maximum size is 100MB.`;
+        }
+        
+        // Check file extension
+        const fileName = file.name.toLowerCase();
+        if (!fileName.endsWith('.jsonl') && !fileName.endsWith('.json')) {
+            return `Invalid file format. Expected .jsonl or .json file, but got ${file.name}. Please upload a file exported from Google Takeout containing your Nest HVAC runtime data.`;
+        }
+        
+        // Warn if uploading a .json file (usually wrong format)
+        if (fileName.endsWith('.json') && !fileName.endsWith('.jsonl')) {
+            return `You selected a .json file, but this tool requires a .jsonl file (JSON Lines format). If you exported from Google Takeout, look for the file named "HvacRuntime.jsonl" in the Nest data folder.`;
+        }
+        
+        return null; // No validation error
     }
 
     prepareChartData() {
@@ -412,6 +443,7 @@ class NestDataViewer {
             setTimeout(() => {
                 this.setupDateFilter();
                 this.updateStats();
+                this.showValidationWarning(); // Show warning if there were skipped lines
                 this.updateProgressStep('charts');
                 
                 setTimeout(() => {
@@ -431,14 +463,60 @@ class NestDataViewer {
         });
     }
 
+    showValidationWarning() {
+        if (!this.parseStats || (this.parseStats.invalidJsonLines === 0 && this.parseStats.missingFieldsLines === 0)) {
+            this.hideValidationWarning();
+            return;
+        }
+
+        const { invalidJsonLines, missingFieldsLines } = this.parseStats;
+        const warningDiv = document.getElementById('validationWarning');
+        const detailsDiv = document.getElementById('validationWarningDetails');
+        
+        if (!warningDiv || !detailsDiv) return;
+        
+        let details = [];
+        if (invalidJsonLines > 0) {
+            details.push(`${invalidJsonLines} line(s) with invalid JSON format`);
+        }
+        if (missingFieldsLines > 0) {
+            details.push(`${missingFieldsLines} line(s) missing required fields`);
+        }
+        
+        detailsDiv.innerHTML = `
+            <p><strong>Skipped invalid records:</strong></p>
+            <ul>
+                ${details.map(d => `<li>${d}</li>`).join('')}
+            </ul>
+            <p style="font-size: 0.85rem; color: #555; margin-top: 8px;">
+                These lines were excluded from the analysis. The remaining ${this.data.length.toLocaleString()} valid records are displayed below.
+            </p>
+        `;
+        
+        warningDiv.style.display = 'block';
+    }
+
+    hideValidationWarning() {
+        const warningDiv = document.getElementById('validationWarning');
+        if (warningDiv) {
+            warningDiv.style.display = 'none';
+        }
+    }
+
     parseJSONL(text) {
         const lines = text.trim().split('\n');
         const data = [];
+        let emptyLines = 0;
+        let invalidJsonLines = 0;
+        let missingFieldsLines = 0;
 
         for (let i = 0; i < lines.length; i++) {
             try {
                 let line = lines[i].trim();
-                if (!line) continue;
+                if (!line) {
+                    emptyLines++;
+                    continue;
+                }
 
                 const fixed = line
                 .replace(/^"(.*)"$/, '$1') // Remove outer quotes
@@ -451,10 +529,43 @@ class NestDataViewer {
                 if (record.interval_start && record.indoor_temp !== undefined && record.outdoor_temp !== undefined && record.outdoor_temp !== null) {
                     record.timestamp = new Date(record.interval_start);
                     data.push(record);
+                } else {
+                    missingFieldsLines++;
                 }
             } catch (error) {
+                invalidJsonLines++;
                 console.warn(`Error parsing line ${i + 1}:`, error);
             }
+        }
+
+        // Store stats for warning display
+        this.parseStats = {
+            invalidJsonLines,
+            missingFieldsLines,
+            emptyLines
+        };
+
+        // Check if we got any valid data
+        if (data.length === 0) {
+            const errorParts = [];
+            
+            if (invalidJsonLines > 0) {
+                errorParts.push(`${invalidJsonLines} line(s) with invalid JSON`);
+            }
+            if (missingFieldsLines > 0) {
+                errorParts.push(`${missingFieldsLines} line(s) missing required fields`);
+            }
+            
+            let errorMsg;
+            if (emptyLines > 0 && invalidJsonLines === 0 && missingFieldsLines === 0) {
+                errorMsg = 'The file is empty or contains only blank lines. Please make sure you selected the correct HVAC runtime data file from Google Takeout.';
+            } else if (errorParts.length > 0) {
+                errorMsg = `No valid HVAC runtime records found. Issues: ${errorParts.join(', ')}. The file should contain lines with fields: interval_start, indoor_temp, outdoor_temp, and other HVAC runtime data.`;
+            } else {
+                errorMsg = 'No valid data found in file. Make sure you uploaded a Nest HVAC runtime data file from Google Takeout.';
+            }
+            
+            throw new Error(errorMsg);
         }
 
         // Sort by timestamp
