@@ -9,23 +9,23 @@ jobs:
     name: Teardown PR ${{ github.event.pull_request.number }} preview
     runs-on: ubuntu-latest
     permissions:
+      contents: write
       pull-requests: write
 
     steps:
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '18'
-
-      - name: Install surge
-        run: npm install -g surge
-
-      - name: Teardown surge preview
-        env:
-          SURGE_TOKEN: ${{ secrets.SURGE_TOKEN }}
+      - name: Remove preview directory from gh-pages branch
         run: |
-          DOMAIN="pr-${{ github.event.pull_request.number }}-nest-viewer.surge.sh"
-          surge teardown "$DOMAIN" --token "$SURGE_TOKEN"
+          git clone --branch gh-pages --depth 1 \
+            "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}" \
+            gh-pages-dir
+          cd gh-pages-dir
+          if [ -d "pr/${{ github.event.pull_request.number }}" ]; then
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git config user.name "github-actions[bot]"
+            git rm -rf "pr/${{ github.event.pull_request.number }}"
+            git commit -m "Remove PR preview for #${{ github.event.pull_request.number }}"
+            git push
+          fi
 
       - name: Update PR comment to reflect teardown
         uses: actions/github-script@v7
