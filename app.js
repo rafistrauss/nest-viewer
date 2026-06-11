@@ -11,8 +11,14 @@ class NestDataViewer {
         this.dataWorker = null;
         this.updateTimeout = null; // For debouncing
         this.parseStats = null; // Track parsing statistics
+        this.aiService = window.NestAI?.AIService ? new window.NestAI.AIService() : null;
+        this.aiRequestController = null;
+        this.aiRequestInFlight = false;
+        this.thermostatEvents = [];
+        this.aiKeyVisible = false;
         this.initializeEventListeners();
         this.initializeWorker();
+        this.initializeAISection();
     }
 
     initializeEventListeners() {
@@ -32,6 +38,8 @@ class NestDataViewer {
                         this.updateStats();
                         // When temperature unit changes, we need to recreate all charts
                         this.recreateChartsWithNewUnits();
+                        this.refreshThermostatEvents();
+                        this.updateAIDataPreview();
                     });
                 }
             });
@@ -132,6 +140,34 @@ class NestDataViewer {
         document.getElementById('loadSampleData').addEventListener('click', () => {
             this.loadSampleData();
         });
+
+        document.getElementById('saveApiKey').addEventListener('click', () => {
+            this.saveGeminiApiKey();
+        });
+
+        document.getElementById('removeApiKey').addEventListener('click', () => {
+            this.removeGeminiApiKey();
+        });
+
+        document.getElementById('toggleApiKeyVisibility').addEventListener('click', () => {
+            this.toggleApiKeyVisibility();
+        });
+
+        document.getElementById('eventSelector').addEventListener('change', () => {
+            this.updateAIDataPreview();
+        });
+
+        document.getElementById('explainEventWithAI').addEventListener('click', () => {
+            this.explainSelectedEvent();
+        });
+
+        document.getElementById('analyzeHVACWithAI').addEventListener('click', () => {
+            this.analyzeHVACPerformance();
+        });
+
+        document.getElementById('cancelAIRequest').addEventListener('click', () => {
+            this.cancelAIRequest();
+        });
     }
 
     initializeWorker() {
@@ -149,6 +185,277 @@ class NestDataViewer {
         }
     }
 
+    initializeAISection() {
+        const selector = document.getElementById('eventSelector');
+        if (selector && selector.options.length === 0) {
+            selector.innerHTML = '<option value="">No events available yet</option>';
+        }
+        this.updateApiKeyUI();
+        this.updateAIDataPreview();
+        this.setAIStatus('Configure a Gemini API key to enable AI analysis.', 'info');
+        this.updateAIActionState();
+    }
+
+    getDataForAnalysis() {
+        if (this.filteredData.length > 0) {
+            return this.filteredData;
+        }
+        return this.data;
+    }
+
+    updateApiKeyUI(message = '') {
+        const keyInput = document.getElementById('geminiApiKey');
+        const statusElement = document.getElementById('apiKeyStatus');
+        const hasKey = this.aiService?.hasApiKey();
+        const redactKey = this.aiService?.getRedactedApiKey() || '';
+
+        keyInput.value = '';
+        keyInput.placeholder = hasKey ? `Saved (${redactKey})` : 'Paste your Gemini API key';
+        statusElement.textContent = message || (hasKey ? 'Gemini API key is saved in local browser storage.' : 'No API key configured.');
+        statusElement.style.color = hasKey ? '#0a7f3f' : '#666';
+    }
+
+    toggleApiKeyVisibility() {
+        const keyInput = document.getElementById('geminiApiKey');
+        const toggleButton = document.getElementById('toggleApiKeyVisibility');
+        this.aiKeyVisible = !this.aiKeyVisible;
+        keyInput.type = this.aiKeyVisible ? 'text' : 'password';
+        toggleButton.textContent = this.aiKeyVisible ? 'Hide' : 'Show';
+    }
+
+    saveGeminiApiKey() {
+        if (!this.aiService) return;
+        const keyInput = document.getElementById('geminiApiKey');
+        const candidateKey = (keyInput.value || '').trim();
+
+        if (candidateKey.length < 20) {
+            this.updateApiKeyUI('Please enter a valid Gemini API key.');
+            document.getElementById('apiKeyStatus').style.color = '#c0392b';
+            return;
+        }
+
+        try {
+            this.aiService.saveApiKey(candidateKey);
+            this.aiService.clearCache();
+            this.updateApiKeyUI('Gemini API key saved locally in this browser.');
+            this.updateAIActionState();
+        } catch (error) {
+            this.updateApiKeyUI(error.message || 'Unable to save API key.');
+            document.getElementById('apiKeyStatus').style.color = '#c0392b';
+        }
+    }
+
+    removeGeminiApiKey() {
+        if (!this.aiService) return;
+        this.aiService.removeApiKey();
+        this.aiService.clearCache();
+        this.updateApiKeyUI('Gemini API key removed from browser storage.');
+        document.getElementById('apiKeyStatus').style.color = '#666';
+        this.updateAIActionState();
+    }
+
+    buildThermostatEvents(records) {
+        const events = [];
+        let current = null;
+
+        records.forEach((record, index) => {
+            const coolingSeconds = Number(record.cooling_time || 0);
+            const heatingSeconds = Number(record.heating_time || 0);
+            const mode = coolingSeconds > 0 ? 'cooling' : (heatingSeconds > 0 ? 'heating' : null);
+            const previousRecord = index > 0 ? records[index - 1] : null;
+
+            if (mode && (!current || current.mode !== mode)) {
+                current = {
+                    id: `${mode}-${record.timestamp.getTime()}`,
+                    mode,
+                    startRecord: record,
+                    endRecord: record,
+                    totalSeconds: mode === 'cooling' ? coolingSeconds : heatingSeconds,
+                    records: 1,
+                    tempSamples: [record.outdoor_temp].filter(v => Number.isFinite(v))
+                };
+                events.push(current);
+            } else if (mode && current) {
+                current.endRecord = record;
+                current.totalSeconds += mode === 'cooling' ? coolingSeconds : heatingSeconds;
+                current.records += 1;
+                if (Number.isFinite(record.outdoor_temp)) {
+                    current.tempSamples.push(record.outdoor_temp);
+                }
+            } else if (!mode && current && previousRecord) {
+                current = null;
+            }
+        });
+
+        return events
+            .map(event => {
+                const startRecord = event.startRecord;
+                const endRecord = event.endRecord;
+                const avgOutdoorTemp = event.tempSamples.length
+                    ? event.tempSamples.reduce((sum, value) => sum + value, 0) / event.tempSamples.length
+                    : null;
+
+                return {
+                    id: event.id,
+                    mode: event.mode,
+                    startTime: startRecord.timestamp.toISOString(),
+                    endTime: endRecord.timestamp.toISOString(),
+                    durationMinutes: Math.round((event.totalSeconds / 60) * 10) / 10,
+                    startIndoorTemp: Number.isFinite(startRecord.indoor_temp) ? this.getTemperatureForDisplay(startRecord.indoor_temp) : null,
+                    endIndoorTemp: Number.isFinite(endRecord.indoor_temp) ? this.getTemperatureForDisplay(endRecord.indoor_temp) : null,
+                    startSetpoint: Number.isFinite(startRecord[`${event.mode}_target`]) ? this.getTemperatureForDisplay(startRecord[`${event.mode}_target`]) : null,
+                    endSetpoint: Number.isFinite(endRecord[`${event.mode}_target`]) ? this.getTemperatureForDisplay(endRecord[`${event.mode}_target`]) : null,
+                    avgOutdoorTemp: Number.isFinite(avgOutdoorTemp) ? this.getTemperatureForDisplay(avgOutdoorTemp) : null,
+                    records: event.records
+                };
+            })
+            .filter(event => event.durationMinutes > 0)
+            .sort((left, right) => new Date(right.startTime) - new Date(left.startTime))
+            .slice(0, 50);
+    }
+
+    refreshThermostatEvents() {
+        const records = this.getDataForAnalysis();
+        this.thermostatEvents = this.buildThermostatEvents(records);
+        const selector = document.getElementById('eventSelector');
+        if (!selector) return;
+
+        if (this.thermostatEvents.length === 0) {
+            selector.innerHTML = '<option value="">No events available for the selected range</option>';
+            return;
+        }
+
+        selector.innerHTML = this.thermostatEvents.map(event => {
+            const icon = event.mode === 'cooling' ? '❄️' : '🔥';
+            const start = new Date(event.startTime).toLocaleString();
+            return `<option value=\"${event.id}\">${icon} ${start} • ${event.durationMinutes} min</option>`;
+        }).join('');
+    }
+
+    getSelectedEventSummary() {
+        const selectedId = document.getElementById('eventSelector')?.value;
+        return this.thermostatEvents.find(event => event.id === selectedId) || null;
+    }
+
+    updateAIDataPreview() {
+        const preview = document.getElementById('aiDataPreview');
+        const records = this.getDataForAnalysis();
+        const selectedEvent = this.getSelectedEventSummary();
+
+        if (selectedEvent) {
+            preview.textContent = [
+                '- One summarized thermostat event',
+                `- Mode: ${selectedEvent.mode}`,
+                `- Duration: ${selectedEvent.durationMinutes} minutes`,
+                '- Indoor/outdoor temperatures and setpoints for the event'
+            ].join('\n');
+            return;
+        }
+
+        preview.textContent = records.length
+            ? [
+                `- ${records.length.toLocaleString()} filtered records converted into summarized metrics`,
+                '- Cooling cycle metrics',
+                '- Heating cycle metrics',
+                '- Temperature performance metrics'
+            ].join('\n')
+            : '- No dataset selected';
+    }
+
+    updateAIActionState(isLoading = false) {
+        const hasData = this.getDataForAnalysis().length > 0;
+        const hasEvents = this.thermostatEvents.length > 0;
+        const hasKey = this.aiService?.hasApiKey();
+
+        document.getElementById('explainEventWithAI').disabled = !hasData || !hasEvents || !hasKey || isLoading;
+        document.getElementById('analyzeHVACWithAI').disabled = !hasData || !hasKey || isLoading;
+        document.getElementById('cancelAIRequest').style.display = isLoading ? 'inline-block' : 'none';
+    }
+
+    setAIStatus(message, type = 'info') {
+        const statusElement = document.getElementById('aiStatus');
+        statusElement.textContent = message;
+        statusElement.style.color = type === 'error' ? '#c0392b' : (type === 'success' ? '#0a7f3f' : '#666');
+    }
+
+    setAIOutput(content) {
+        document.getElementById('aiOutput').textContent = content;
+    }
+
+    cancelAIRequest() {
+        if (this.aiRequestController) {
+            this.aiRequestController.abort();
+            this.setAIStatus('AI request canceled.', 'info');
+        }
+    }
+
+    async runAIRequest(requestCallback) {
+        if (!this.aiService) {
+            this.setAIStatus('AI service is unavailable in this build.', 'error');
+            return;
+        }
+
+        if (this.aiRequestInFlight) {
+            this.setAIStatus('An AI request is already running. Please wait or cancel it.', 'info');
+            return;
+        }
+
+        this.aiRequestInFlight = true;
+        this.aiRequestController = new AbortController();
+        this.updateAIActionState(true);
+
+        try {
+            await requestCallback(this.aiRequestController.signal);
+            this.setAIStatus('AI analysis complete.', 'success');
+        } catch (error) {
+            if (error?.name === 'AbortError') {
+                this.setAIStatus('AI request canceled.', 'info');
+                return;
+            }
+            this.setAIStatus(error.message || 'AI request failed.', 'error');
+        } finally {
+            this.aiRequestInFlight = false;
+            this.aiRequestController = null;
+            this.updateAIActionState(false);
+        }
+    }
+
+    async explainSelectedEvent() {
+        const eventSummary = this.getSelectedEventSummary();
+        if (!eventSummary) {
+            this.setAIStatus('Select an event to explain.', 'error');
+            return;
+        }
+
+        await this.runAIRequest(async (signal) => {
+            this.setAIStatus('Explaining selected event with Gemini...');
+            const output = await this.aiService.explainEvent(eventSummary, {
+                cacheKey: `event:${eventSummary.id}`,
+                signal
+            });
+            this.setAIOutput(output);
+        });
+    }
+
+    async analyzeHVACPerformance() {
+        const records = this.getDataForAnalysis();
+        if (!records.length) {
+            this.setAIStatus('Upload data before running HVAC analysis.', 'error');
+            return;
+        }
+
+        const summary = window.NestAI.summarizeHVACData(records, 30);
+
+        await this.runAIRequest(async (signal) => {
+            this.setAIStatus('Analyzing HVAC performance with Gemini...');
+            const output = await this.aiService.analyzeHVAC(summary, {
+                cacheKey: `hvac:${JSON.stringify(summary)}`,
+                signal
+            });
+            this.setAIOutput(output);
+        });
+    }
+
     handleWorkerMessage(message) {
         const { type, data, progress, error, aggregationType, stats } = message;
         
@@ -163,6 +470,9 @@ class NestDataViewer {
                 this.filteredData = [...this.data];
                 this.parseStats = stats; // Store parsing statistics
                 this.showValidationWarning(); // Show warning if there were skipped lines
+                this.refreshThermostatEvents();
+                this.updateAIDataPreview();
+                this.updateAIActionState();
                 // Use setTimeout to allow UI to update before heavy processing
                 setTimeout(() => {
                     this.prepareChartData();
@@ -1523,6 +1833,9 @@ class NestDataViewer {
         
         this.hideError();
         this.updateStats();
+        this.refreshThermostatEvents();
+        this.updateAIDataPreview();
+        this.updateAIActionState();
         
         // Update only non-chart UI elements to avoid zoom conflicts
         // Don't recreate charts as they are already showing the selected range
@@ -1634,6 +1947,9 @@ class NestDataViewer {
         this.hideError();
         this.updateStats();
         this.createCharts();
+        this.refreshThermostatEvents();
+        this.updateAIDataPreview();
+        this.updateAIActionState();
     }
 
     resetDateFilter() {
@@ -1642,6 +1958,9 @@ class NestDataViewer {
         this.hideError();
         this.updateStats();
         this.createCharts();
+        this.refreshThermostatEvents();
+        this.updateAIDataPreview();
+        this.updateAIActionState();
         
         // Reset zoom on all charts as well
         setTimeout(() => {
@@ -1670,6 +1989,9 @@ class NestDataViewer {
         this.hideError();
         this.updateStats();
         this.createCharts();
+        this.refreshThermostatEvents();
+        this.updateAIDataPreview();
+        this.updateAIActionState();
     }
 }
 

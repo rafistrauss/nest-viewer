@@ -1216,6 +1216,41 @@
                     <canvas id="correlationChart"></canvas>
                 </div>
             </div>
+
+            <div id="aiSection" class="chart-container" style="margin-top: 30px;">
+                <h3 class="chart-title">🤖 AI Analysis</h3>
+                <p style="color: #555; margin-bottom: 14px;">Your API key is stored only in your browser and is sent directly to Google's Gemini API.</p>
+                <div style="display: grid; gap: 12px; margin-bottom: 18px;">
+                    <div>
+                        <label for="geminiApiKey" style="display: block; margin-bottom: 6px; font-weight: 600;">Gemini API Key</label>
+                        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                            <input type="password" id="geminiApiKey" placeholder="Paste your Gemini API key" style="flex: 1; min-width: 240px; border: 1px solid #ddd; border-radius: 8px; padding: 10px 12px;">
+                            <button id="toggleApiKeyVisibility" class="filter-btn reset-btn" type="button">Show</button>
+                            <button id="saveApiKey" class="filter-btn apply-btn" type="button">Save API Key</button>
+                            <button id="removeApiKey" class="filter-btn reset-btn" type="button">Remove API Key</button>
+                        </div>
+                        <div id="apiKeyStatus" style="margin-top: 8px; color: #666; font-size: 0.92rem;">No API key configured.</div>
+                        <div style="margin-top: 4px; color: #666; font-size: 0.86rem;">Need an API key? Create one in Google AI Studio.</div>
+                    </div>
+                </div>
+                <div style="background: #f8fafc; border: 1px solid #e7edf3; border-radius: 10px; padding: 12px; margin-bottom: 16px;">
+                    <div style="font-weight: 600; margin-bottom: 6px;">Data sent to AI:</div>
+                    <div id="aiDataPreview" style="color: #4b5563; font-size: 0.92rem; white-space: pre-line;">- No dataset selected</div>
+                </div>
+                <div style="display: grid; gap: 12px; margin-bottom: 14px;">
+                    <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+                        <label for="eventSelector" style="font-weight: 600;">Thermostat Event:</label>
+                        <select id="eventSelector" style="flex: 1; min-width: 260px; border: 1px solid #ddd; border-radius: 8px; padding: 8px;"></select>
+                        <button id="explainEventWithAI" class="sample-btn" type="button">Explain with AI</button>
+                    </div>
+                    <div>
+                        <button id="analyzeHVACWithAI" class="sample-btn" type="button">Analyze HVAC Performance</button>
+                        <button id="cancelAIRequest" class="filter-btn reset-btn" type="button" style="margin-left: 8px; display: none;">Cancel</button>
+                    </div>
+                </div>
+                <div id="aiStatus" style="margin-bottom: 10px; color: #666;"></div>
+                <pre id="aiOutput" style="background: #111827; color: #e5e7eb; border-radius: 10px; padding: 12px; white-space: pre-wrap; min-height: 70px;">AI output will appear here.</pre>
+            </div>
         </div>
     </div>
 
@@ -1275,6 +1310,12 @@
         </div>
     </div>
 
+    <script src="ai/AIProvider.js"></script>
+    <script src="ai/GeminiProvider.js"></script>
+    <script src="ai/prompts/buildEventExplanationPrompt.js"></script>
+    <script src="ai/prompts/buildHVACAnalysisPrompt.js"></script>
+    <script src="ai/summarizers/summarizeHVACData.js"></script>
+    <script src="ai/AIService.js"></script>
     <script src="app.js"></script>
 </body>
 </html>
