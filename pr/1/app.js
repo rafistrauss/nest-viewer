@@ -168,6 +168,10 @@ class NestDataViewer {
         document.getElementById('cancelAIRequest').addEventListener('click', () => {
             this.cancelAIRequest();
         });
+
+        document.getElementById('toggleAIRaw').addEventListener('click', () => {
+            this.toggleAIRaw();
+        });
     }
 
     initializeWorker() {
@@ -379,7 +383,38 @@ class NestDataViewer {
     }
 
     setAIOutput(content) {
-        document.getElementById('aiOutput').textContent = content;
+        const rendered = document.getElementById('aiOutput');
+        const raw = document.getElementById('aiOutputRaw');
+        const toolbar = document.getElementById('aiOutputToolbar');
+        const text = content == null ? '' : String(content);
+
+        this.aiRawOutput = text;
+        raw.textContent = text;
+
+        const renderer = window.NestAI && window.NestAI.renderMarkdown;
+        rendered.innerHTML = renderer ? renderer(text) : '';
+        if (!renderer) {
+            rendered.textContent = text;
+        }
+
+        if (toolbar) {
+            toolbar.style.display = text ? 'flex' : 'none';
+        }
+        this.setAIRawVisible(false);
+    }
+
+    setAIRawVisible(visible) {
+        this.aiRawVisible = visible;
+        const rendered = document.getElementById('aiOutput');
+        const raw = document.getElementById('aiOutputRaw');
+        const toggle = document.getElementById('toggleAIRaw');
+        if (rendered) rendered.style.display = visible ? 'none' : 'block';
+        if (raw) raw.style.display = visible ? 'block' : 'none';
+        if (toggle) toggle.textContent = visible ? 'View formatted' : 'View raw response';
+    }
+
+    toggleAIRaw() {
+        this.setAIRawVisible(!this.aiRawVisible);
     }
 
     cancelAIRequest() {
