@@ -6,6 +6,7 @@
             this.localStorage = options.localStorage || globalScope.localStorage;
             this.cache = new Map();
             this.providerName = 'gemini';
+            this.debug = options.debug !== undefined ? options.debug : Boolean(globalScope.NEST_DEBUG);
             this.providerFactory = options.providerFactory || ((apiKey) => {
                 return new globalScope.NestAI.GeminiProvider(apiKey);
             });
@@ -57,16 +58,40 @@
                 return this.cache.get(cacheKey);
             }
 
+            if (this.debug) {
+                this.logDebugRequest(prompt, { cacheKey, ...options });
+            }
+
             const provider = this.providerFactory(apiKey);
             const output = await provider.analyze(prompt, { signal: options.signal });
             this.cache.set(cacheKey, output);
             return output;
         }
 
+        logDebugRequest(prompt, meta = {}) {
+            const logger = globalScope.console;
+            if (!logger) return;
+            const label = `🐞 [NestAI debug] ${this.providerName} request — ${meta.label || meta.cacheKey || 'prompt'}`;
+            if (typeof logger.groupCollapsed === 'function') {
+                logger.groupCollapsed(label);
+            } else {
+                logger.log(label);
+            }
+            if (meta.data !== undefined) {
+                logger.log('Summarized data:', meta.data);
+            }
+            logger.log('Prompt to be sent:\n' + prompt);
+            if (typeof logger.groupEnd === 'function') {
+                logger.groupEnd();
+            }
+        }
+
         async explainEvent(eventSummary, options = {}) {
             const prompt = globalScope.NestAI.buildEventExplanationPrompt(eventSummary);
             return this.analyzePrompt(prompt, {
                 ...options,
+                label: 'event explanation',
+                data: eventSummary,
                 cacheKey: options.cacheKey || `event:${JSON.stringify(eventSummary)}`
             });
         }
@@ -75,6 +100,8 @@
             const prompt = globalScope.NestAI.buildHVACAnalysisPrompt(summary);
             return this.analyzePrompt(prompt, {
                 ...options,
+                label: 'HVAC analysis',
+                data: summary,
                 cacheKey: options.cacheKey || `hvac:${JSON.stringify(summary)}`
             });
         }
