@@ -21,6 +21,12 @@ jobs:
         with:
           path: source
 
+      - name: Checkout main for bootstrapping
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: source-main
+
       - name: Checkout or create gh-pages branch
         run: |
           git clone \
@@ -32,8 +38,12 @@ jobs:
           if git ls-remote --exit-code --heads origin gh-pages; then
             git checkout gh-pages
           else
+            # gh-pages doesn't exist yet — create it and bootstrap the root from
+            # main so production is never empty when the first PR preview deploys.
             git checkout --orphan gh-pages
             git rm -rf . || true
+            rsync -av --exclude='.git' --exclude='pr/' "$GITHUB_WORKSPACE/source-main/" ./
+            touch .nojekyll
           fi
 
       - name: Sync PR files to preview subdirectory
