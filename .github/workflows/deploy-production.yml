@@ -18,10 +18,40 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-
-      - name: Deploy to gh-pages root
-        uses: peaceiris/actions-gh-pages@v4
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: .
-          keep_files: true
+          path: source
+
+      - name: Checkout or create gh-pages branch
+        run: |
+          git clone \
+            "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" \
+            gh-pages
+          cd gh-pages
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          if git ls-remote --exit-code --heads origin gh-pages; then
+            git checkout gh-pages
+          else
+            git checkout --orphan gh-pages
+            git rm -rf . || true
+          fi
+
+      - name: Sync production files to gh-pages root
+        run: |
+          # Sync source files to root, preserving any existing pr/ preview directories.
+          # --delete removes stale files at the root without touching pr/.
+          rsync -av \
+            --exclude='.git' \
+            --exclude='pr/' \
+            --delete \
+            source/ gh-pages/
+          # Disable Jekyll so GitHub Pages serves files as-is.
+          touch gh-pages/.nojekyll
+          cd gh-pages
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes — skipping commit."
+          else
+            git commit -m "Deploy production [$(date -u +%Y-%m-%dT%H:%M:%SZ)]"
+            git push origin gh-pages
+          fi

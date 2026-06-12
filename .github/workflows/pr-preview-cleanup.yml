@@ -15,17 +15,24 @@ jobs:
     steps:
       - name: Remove preview directory from gh-pages branch
         run: |
-          git clone --branch gh-pages --depth 1 \
-            "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}" \
-            gh-pages-dir
-          cd gh-pages-dir
-          if [ -d "pr/${{ github.event.pull_request.number }}" ]; then
-            git config user.email "github-actions[bot]@users.noreply.github.com"
-            git config user.name "github-actions[bot]"
-            git rm -rf "pr/${{ github.event.pull_request.number }}"
-            git commit -m "Remove PR preview for #${{ github.event.pull_request.number }}"
-            git push
+          git clone \
+            "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" \
+            gh-pages
+          cd gh-pages
+          if ! git ls-remote --exit-code --heads origin gh-pages; then
+            echo "gh-pages branch does not exist — nothing to clean up."
+            exit 0
           fi
+          git checkout gh-pages
+          if [ ! -d "pr/${{ github.event.pull_request.number }}" ]; then
+            echo "Preview directory not found — nothing to clean up."
+            exit 0
+          fi
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git rm -rf "pr/${{ github.event.pull_request.number }}"
+          git commit -m "Remove PR #${{ github.event.pull_request.number }} preview"
+          git push origin gh-pages
 
       - name: Update PR comment to reflect teardown
         uses: actions/github-script@v7
@@ -55,3 +62,4 @@ jobs:
               comment_id: existing.id,
               body,
             });
+
