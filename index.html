@@ -1165,6 +1165,9 @@
                 <button id="loadSampleData" class="sample-btn">
                     🎯 Try Sample Data
                 </button>
+                <button id="clearSavedData" class="sample-btn" type="button" style="display: none; margin-left: 8px;">
+                    🗑️ Forget Saved Data
+                </button>
             </div>
             <p class="info-text">Select your exported Nest HVAC runtime data file (.jsonl format) or try the sample data</p>
             
@@ -1262,8 +1265,12 @@
                 <h3 class="chart-title">🌡️ Temperature Analysis</h3>
                 <div class="chart-controls">
                     <label class="control-label" style="cursor: pointer;">
-                        <input type="checkbox" id="showTemperatureTargets" style="margin-right: 6px; vertical-align: middle;">
-                        Show cooling/heating targets
+                        <input type="checkbox" id="showCoolingTarget" style="margin-right: 6px; vertical-align: middle;">
+                        Cooling target
+                    </label>
+                    <label class="control-label" style="cursor: pointer; margin-left: 12px;">
+                        <input type="checkbox" id="showHeatingTarget" style="margin-right: 6px; vertical-align: middle;">
+                        Heating target
                     </label>
                 </div>
                 <div class="chart-wrapper">
