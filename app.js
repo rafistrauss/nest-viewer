@@ -16,6 +16,7 @@ class NestDataViewer {
         this.aiRequestInFlight = false;
         this.aiKeyVisible = false;
         this.hvacAnalysisPeriodDays = 30;
+        this.showTemperatureTargets = false;
         this.uploadCollapsed = false;
         this.initializeEventListeners();
         this.initializeWorker();
@@ -56,6 +57,13 @@ class NestDataViewer {
 
         document.getElementById('resetZoom').addEventListener('click', () => {
             this.resetAllChartsZoom();
+        });
+
+        document.getElementById('showTemperatureTargets').addEventListener('change', (event) => {
+            this.showTemperatureTargets = event.target.checked;
+            if (this.charts.temperature) {
+                this.updateTemperatureChart();
+            }
         });
 
         // Quick filter listeners
@@ -1017,40 +1025,75 @@ class NestDataViewer {
         // Pre-process data to avoid mapping during chart creation
         const indoorTempData = [];
         const outdoorTempData = [];
-        
+        const coolingTargetData = [];
+        const heatingTargetData = [];
+
         for (let i = 0; i < timeSeriesData.length; i++) {
             const d = timeSeriesData[i];
             indoorTempData.push({ x: d.x, y: d.indoorTemp });
             outdoorTempData.push({ x: d.x, y: d.outdoorTemp });
+            coolingTargetData.push({ x: d.x, y: d.coolingTarget });
+            heatingTargetData.push({ x: d.x, y: d.heatingTarget });
         }
-        
+
+        const datasets = [
+            {
+                label: 'Indoor Temperature',
+                data: indoorTempData,
+                borderColor: '#ff6b6b',
+                backgroundColor: 'rgba(255, 107, 107, 0.1)',
+                borderWidth: 2,
+                fill: false,
+                tension: 0.3,
+                pointRadius: 0,
+                pointHoverRadius: 4
+            },
+            {
+                label: 'Outdoor Temperature',
+                data: outdoorTempData,
+                borderColor: '#4ecdc4',
+                backgroundColor: 'rgba(78, 205, 196, 0.1)',
+                borderWidth: 2,
+                fill: false,
+                tension: 0.3,
+                pointRadius: 0,
+                pointHoverRadius: 4
+            }
+        ];
+
+        if (this.showTemperatureTargets) {
+            datasets.push(
+                {
+                    label: 'Cooling Target',
+                    data: coolingTargetData,
+                    borderColor: '#45b7d1',
+                    backgroundColor: 'rgba(69, 183, 209, 0.1)',
+                    borderWidth: 2,
+                    fill: false,
+                    tension: 0.3,
+                    borderDash: [5, 5],
+                    pointRadius: 0,
+                    pointHoverRadius: 4
+                },
+                {
+                    label: 'Heating Target',
+                    data: heatingTargetData,
+                    borderColor: '#f39c12',
+                    backgroundColor: 'rgba(243, 156, 18, 0.1)',
+                    borderWidth: 2,
+                    fill: false,
+                    tension: 0.3,
+                    borderDash: [5, 5],
+                    pointRadius: 0,
+                    pointHoverRadius: 4
+                }
+            );
+        }
+
         this.charts.temperature = new Chart(document.getElementById('temperatureChart'), {
             type: 'line',
             data: {
-                datasets: [
-                    {
-                        label: 'Indoor Temperature',
-                        data: indoorTempData,
-                        borderColor: '#ff6b6b',
-                        backgroundColor: 'rgba(255, 107, 107, 0.1)',
-                        borderWidth: 2,
-                        fill: false,
-                        tension: 0.3,
-                        pointRadius: 0,
-                        pointHoverRadius: 4
-                    },
-                    {
-                        label: 'Outdoor Temperature',
-                        data: outdoorTempData,
-                        borderColor: '#4ecdc4',
-                        backgroundColor: 'rgba(78, 205, 196, 0.1)',
-                        borderWidth: 2,
-                        fill: false,
-                        tension: 0.3,
-                        pointRadius: 0,
-                        pointHoverRadius: 4
-                    }
-                ]
+                datasets
             },
             options: this.getCommonChartOptions(`Temperature (${this.temperatureUnit === 'F' ? '°F' : '°C'})`),
             plugins: [temperatureBackgroundPlugin]
