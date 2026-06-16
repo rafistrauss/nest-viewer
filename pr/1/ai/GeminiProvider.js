@@ -5,7 +5,9 @@
         constructor(apiKey, options = {}) {
             this.apiKey = (apiKey || '').trim();
             this.model = options.model || GEMINI_MODEL;
-            this.fetchImpl = options.fetchImpl || (globalScope.fetch ? globalScope.fetch.bind(globalScope) : null);
+            this.fetchImpl = options.fetchImpl !== undefined
+                ? options.fetchImpl
+                : (globalScope.fetch ? globalScope.fetch.bind(globalScope) : null);
         }
 
         buildUrl() {
