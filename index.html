@@ -1086,6 +1086,85 @@
             min-height: 70px;
             font-size: 0.88rem;
         }
+        .anomaly-banner {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-top: 12px;
+            padding: 10px 14px;
+            background: #fff7ed;
+            border: 1px solid #fed7aa;
+            border-radius: 10px;
+            color: #9a3412;
+            font-size: 0.9rem;
+        }
+        .anomaly-clear-btn {
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: #9a3412;
+            background: #ffedd5;
+            border: 1px solid #fdba74;
+            border-radius: 999px;
+            padding: 4px 12px;
+            cursor: pointer;
+        }
+        .anomaly-clear-btn:hover {
+            background: #fed7aa;
+        }
+        .anomaly-popover {
+            position: absolute;
+            z-index: 1000;
+            max-width: 300px;
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
+            padding: 12px 14px;
+            font-size: 0.88rem;
+            color: #1f2937;
+        }
+        .anomaly-popover-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 6px;
+        }
+        .anomaly-popover-header strong {
+            flex: 1;
+            font-size: 0.95rem;
+        }
+        .anomaly-popover-badge {
+            color: #ffffff;
+            font-size: 0.7rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            padding: 2px 8px;
+            border-radius: 999px;
+        }
+        .anomaly-popover-close {
+            border: none;
+            background: transparent;
+            font-size: 1.2rem;
+            line-height: 1;
+            color: #94a3b8;
+            cursor: pointer;
+            padding: 0 2px;
+        }
+        .anomaly-popover-close:hover {
+            color: #475569;
+        }
+        .anomaly-popover-range {
+            font-size: 0.78rem;
+            color: #64748b;
+            margin-bottom: 6px;
+        }
+        .anomaly-popover-detail {
+            margin: 0;
+            line-height: 1.4;
+        }
         .collapse-toggle {
             margin-left: 10px;
             font-size: 0.8rem;
@@ -1365,6 +1444,7 @@
                 </div>
                 <div id="aiOutput" class="ai-output">AI output will appear here.</div>
                 <pre id="aiOutputRaw" class="ai-output-raw" style="display: none;"></pre>
+                <div id="anomalyBanner" class="anomaly-banner" style="display: none;"></div>
             </div>
         </div>
     </div>
@@ -1430,6 +1510,7 @@
     <script src="ai/prompts/buildHVACAnalysisPrompt.js"></script>
     <script src="ai/summarizers/summarizeHVACData.js"></script>
     <script src="ai/markdown/renderMarkdown.js"></script>
+    <script src="ai/parsers/parseAIAnalysis.js"></script>
     <script src="ai/AIService.js"></script>
     <script src="app.js"></script>
 </body>

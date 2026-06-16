@@ -18,6 +18,7 @@ class NestDataViewer {
         this.hvacAnalysisPeriodDays = 30;
         this.showCoolingTarget = false;
         this.showHeatingTarget = false;
+        this.aiAnomalies = [];
         this.uploadCollapsed = false;
         this.storageKey = 'nestViewer.uploadedData.v1';
         this.settingsKey = 'nestViewer.settings.v1';
@@ -391,16 +392,23 @@ class NestDataViewer {
         this.aiRawOutput = text;
         raw.textContent = text;
 
+        // Pull out any structured anomalies the AI appended so we can both
+        // render clean markdown and annotate the charts.
+        const parser = window.NestAI && window.NestAI.parseAIAnalysis;
+        const parsed = parser ? parser(text) : { markdown: text, anomalies: [] };
+        const markdown = parsed.markdown;
+
         const renderer = window.NestAI && window.NestAI.renderMarkdown;
-        rendered.innerHTML = renderer ? renderer(text) : '';
+        rendered.innerHTML = renderer ? renderer(markdown) : '';
         if (!renderer) {
-            rendered.textContent = text;
+            rendered.textContent = markdown;
         }
 
         if (toolbar) {
             toolbar.style.display = text ? 'flex' : 'none';
         }
         this.setAIRawVisible(false);
+        this.setAIAnomalies(parsed.anomalies);
     }
 
     setAIRawVisible(visible) {
@@ -415,6 +423,243 @@ class NestDataViewer {
 
     toggleAIRaw() {
         this.setAIRawVisible(!this.aiRawVisible);
+    }
+
+    setAIAnomalies(anomalies) {
+        this.aiAnomalies = Array.isArray(anomalies) ? anomalies : [];
+        this.updateAnomalyBanner();
+        // Re-render the annotated charts so markers appear/disappear.
+        if (this.charts.temperature) this.updateTemperatureChart();
+        if (this.charts.runtime) this.updateRuntimeChart();
+    }
+
+    clearAIAnomalies() {
+        this.setAIAnomalies([]);
+    }
+
+    updateAnomalyBanner() {
+        const banner = document.getElementById('anomalyBanner');
+        if (!banner) return;
+        const count = this.aiAnomalies.length;
+        if (!count) {
+            banner.style.display = 'none';
+            banner.innerHTML = '';
+            return;
+        }
+        banner.style.display = 'flex';
+        banner.innerHTML = '';
+        const label = document.createElement('span');
+        label.textContent = `📍 ${count} AI-flagged ${count === 1 ? 'range' : 'ranges'} marked on the charts below. Click a ⚠ marker for details.`;
+        const clear = document.createElement('button');
+        clear.type = 'button';
+        clear.className = 'anomaly-clear-btn';
+        clear.textContent = 'Clear markers';
+        clear.addEventListener('click', () => {
+            this.hideAnomalyPopover();
+            this.clearAIAnomalies();
+        });
+        banner.appendChild(label);
+        banner.appendChild(clear);
+    }
+
+    getAnomalySeverityColor(severity, alpha = 1) {
+        const colors = {
+            high: `rgba(231, 76, 60, ${alpha})`,
+            medium: `rgba(243, 156, 18, ${alpha})`,
+            low: `rgba(52, 152, 219, ${alpha})`
+        };
+        return colors[severity] || colors.medium;
+    }
+
+    /**
+     * Chart.js plugin that shades AI-flagged time ranges and draws a clickable
+     * ⚠ marker for each. Marker hitboxes are stored on the chart instance so
+     * the shared onClick handler can map a click to an anomaly.
+     */
+    createAnomalyMarkerPlugin() {
+        const viewer = this;
+        return {
+            id: 'aiAnomalyMarkers',
+            afterDatasetsDraw(chart) {
+                chart.$anomalyMarkers = [];
+                const anomalies = viewer.aiAnomalies;
+                if (!anomalies || !anomalies.length) return;
+
+                const xScale = chart.scales.x;
+                const area = chart.chartArea;
+                if (!xScale || !area) return;
+
+                const ctx = chart.ctx;
+                const viewMin = xScale.min;
+                const viewMax = xScale.max;
+
+                anomalies.forEach((anomaly) => {
+                    // Skip anomalies entirely outside the visible window.
+                    if (anomaly.endMs < viewMin || anomaly.startMs > viewMax) return;
+
+                    const startPx = Math.max(area.left, xScale.getPixelForValue(Math.max(anomaly.startMs, viewMin)));
+                    const endPx = Math.min(area.right, xScale.getPixelForValue(Math.min(anomaly.endMs, viewMax)));
+                    const bandLeft = Math.min(startPx, endPx);
+                    const bandRight = Math.max(startPx, endPx);
+                    const bandWidth = Math.max(bandRight - bandLeft, 2);
+
+                    ctx.save();
+                    // Shaded band over the flagged range.
+                    ctx.fillStyle = viewer.getAnomalySeverityColor(anomaly.severity, 0.12);
+                    ctx.fillRect(bandLeft, area.top, bandWidth, area.bottom - area.top);
+
+                    // Range edges.
+                    ctx.strokeStyle = viewer.getAnomalySeverityColor(anomaly.severity, 0.5);
+                    ctx.lineWidth = 1;
+                    ctx.setLineDash([4, 4]);
+                    ctx.beginPath();
+                    ctx.moveTo(bandLeft + 0.5, area.top);
+                    ctx.lineTo(bandLeft + 0.5, area.bottom);
+                    ctx.moveTo(bandRight - 0.5, area.top);
+                    ctx.lineTo(bandRight - 0.5, area.bottom);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+
+                    // Clickable marker badge at the top-center of the band.
+                    const markerX = (bandLeft + bandRight) / 2;
+                    const markerY = area.top + 12;
+                    const radius = 11;
+
+                    ctx.beginPath();
+                    ctx.arc(markerX, markerY, radius, 0, Math.PI * 2);
+                    ctx.fillStyle = viewer.getAnomalySeverityColor(anomaly.severity, 1);
+                    ctx.fill();
+                    ctx.lineWidth = 2;
+                    ctx.strokeStyle = '#ffffff';
+                    ctx.stroke();
+
+                    ctx.fillStyle = '#ffffff';
+                    ctx.font = 'bold 12px sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText('⚠', markerX, markerY + 0.5);
+                    ctx.restore();
+
+                    chart.$anomalyMarkers.push({
+                        x: markerX,
+                        y: markerY,
+                        radius: radius + 3,
+                        anomaly
+                    });
+                });
+            }
+        };
+    }
+
+    handleAnomalyClick(event, chart) {
+        const markers = chart.$anomalyMarkers;
+        if (!markers || !markers.length) return false;
+
+        const rect = chart.canvas.getBoundingClientRect();
+        const clientX = event.native ? event.native.clientX : event.clientX;
+        const clientY = event.native ? event.native.clientY : event.clientY;
+        const x = clientX - rect.left;
+        const y = clientY - rect.top;
+
+        // Pick the closest marker within its hit radius.
+        let hit = null;
+        let bestDist = Infinity;
+        markers.forEach((marker) => {
+            const dist = Math.hypot(marker.x - x, marker.y - y);
+            if (dist <= marker.radius && dist < bestDist) {
+                bestDist = dist;
+                hit = marker;
+            }
+        });
+
+        if (!hit) {
+            this.hideAnomalyPopover();
+            return false;
+        }
+
+        this.showAnomalyPopover(hit.anomaly, clientX, clientY);
+        return true;
+    }
+
+    showAnomalyPopover(anomaly, clientX, clientY) {
+        let popover = document.getElementById('anomalyPopover');
+        if (!popover) {
+            popover = document.createElement('div');
+            popover.id = 'anomalyPopover';
+            popover.className = 'anomaly-popover';
+            document.body.appendChild(popover);
+            // Dismiss when clicking elsewhere.
+            document.addEventListener('click', (e) => {
+                if (!popover.contains(e.target) && !(e.target && e.target.tagName === 'CANVAS')) {
+                    this.hideAnomalyPopover();
+                }
+            });
+        }
+
+        const start = new Date(anomaly.startMs);
+        const end = new Date(anomaly.endMs);
+        const sameInstant = anomaly.startMs === anomaly.endMs;
+        const rangeText = sameInstant
+            ? `${start.toLocaleString()}`
+            : `${start.toLocaleString()} → ${end.toLocaleString()}`;
+        const sevLabel = anomaly.severity.charAt(0).toUpperCase() + anomaly.severity.slice(1);
+
+        popover.innerHTML = '';
+        const header = document.createElement('div');
+        header.className = 'anomaly-popover-header';
+
+        const badge = document.createElement('span');
+        badge.className = 'anomaly-popover-badge';
+        badge.textContent = sevLabel;
+        badge.style.backgroundColor = this.getAnomalySeverityColor(anomaly.severity, 1);
+
+        const title = document.createElement('strong');
+        title.textContent = anomaly.title;
+
+        const close = document.createElement('button');
+        close.type = 'button';
+        close.className = 'anomaly-popover-close';
+        close.setAttribute('aria-label', 'Close');
+        close.textContent = '×';
+        close.addEventListener('click', () => this.hideAnomalyPopover());
+
+        header.appendChild(badge);
+        header.appendChild(title);
+        header.appendChild(close);
+
+        const range = document.createElement('div');
+        range.className = 'anomaly-popover-range';
+        range.textContent = rangeText;
+
+        popover.appendChild(header);
+        popover.appendChild(range);
+
+        if (anomaly.detail) {
+            const detail = document.createElement('p');
+            detail.className = 'anomaly-popover-detail';
+            detail.textContent = anomaly.detail;
+            popover.appendChild(detail);
+        }
+
+        // Position near the click, then clamp into the viewport.
+        popover.style.display = 'block';
+        popover.style.visibility = 'hidden';
+        const pw = popover.offsetWidth;
+        const ph = popover.offsetHeight;
+        let left = clientX + 14;
+        let top = clientY + 14;
+        if (left + pw > window.innerWidth - 8) left = clientX - pw - 14;
+        if (left < 8) left = 8;
+        if (top + ph > window.innerHeight - 8) top = clientY - ph - 14;
+        if (top < 8) top = 8;
+        popover.style.left = `${left + window.scrollX}px`;
+        popover.style.top = `${top + window.scrollY}px`;
+        popover.style.visibility = 'visible';
+    }
+
+    hideAnomalyPopover() {
+        const popover = document.getElementById('anomalyPopover');
+        if (popover) popover.style.display = 'none';
     }
 
     cancelAIRequest() {
@@ -1286,7 +1531,7 @@ class NestDataViewer {
                 datasets
             },
             options: this.getCommonChartOptions(`Temperature (${this.temperatureUnit === 'F' ? '°F' : '°C'})`),
-            plugins: [temperatureBackgroundPlugin]
+            plugins: [temperatureBackgroundPlugin, this.createAnomalyMarkerPlugin()]
         });
     }
 
@@ -1478,7 +1723,8 @@ class NestDataViewer {
                         stacked: true
                     }
                 }
-            }
+            },
+            plugins: [this.createAnomalyMarkerPlugin()]
         });
     }
 
@@ -1916,6 +2162,9 @@ class NestDataViewer {
         return {
             responsive: true,
             maintainAspectRatio: false,
+            onClick: (event, elements, chart) => {
+                this.handleAnomalyClick(event, chart);
+            },
             interaction: {
                 intersect: false,
                 mode: 'index'

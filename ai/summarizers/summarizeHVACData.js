@@ -213,6 +213,8 @@
         return {
             analysisPeriodDays,
             temperatureUnit,
+            dataStart: null,
+            dataEnd: null,
             avgCoolingCycleMinutes: null,
             avgHeatingCycleMinutes: null,
             maxCoolingCycleMinutes: null,
@@ -295,6 +297,8 @@
         return {
             analysisPeriodDays,
             temperatureUnit,
+            dataStart: new Date(firstTime).toISOString(),
+            dataEnd: new Date(lastTime).toISOString(),
             avgCoolingCycleMinutes: round(average(coolingCycles)),
             avgHeatingCycleMinutes: round(average(heatingCycles)),
             maxCoolingCycleMinutes: coolingCycles.length ? round(Math.max(...coolingCycles)) : null,
