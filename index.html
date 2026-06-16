@@ -204,6 +204,37 @@
             background: linear-gradient(135deg, #218838 0%, #1fa080 100%);
         }
 
+        .clear-btn {
+            display: inline-block;
+            padding: 12px 25px;
+            background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
+            color: white;
+            border: none;
+            border-radius: 50px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 1rem;
+            font-weight: 500;
+            margin: 0 10px;
+        }
+
+        .clear-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(220, 53, 69, 0.3);
+            background: linear-gradient(135deg, #c82333 0%, #bd2130 100%);
+        }
+
+        .storage-notice {
+            display: inline-block;
+            background: #e8f5e9;
+            color: #2e7d32;
+            border: 1px solid #a5d6a7;
+            border-radius: 8px;
+            padding: 8px 16px;
+            font-size: 0.9rem;
+            margin: 10px 0;
+        }
+
         .stats-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
@@ -1165,6 +1196,12 @@
                 <button id="loadSampleData" class="sample-btn">
                     🎯 Try Sample Data
                 </button>
+                <button id="clearSavedDataBtn" class="clear-btn" style="display: none;" title="Remove saved data and reset the viewer">
+                    🗑️ Clear Saved Data
+                </button>
+            </div>
+            <div id="storageNotice" class="storage-notice" style="display: none;">
+                📂 Data restored from your previous session
             </div>
             <p class="info-text">Select your exported Nest HVAC runtime data file (.jsonl format) or try the sample data</p>
             
