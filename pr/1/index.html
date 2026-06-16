@@ -204,6 +204,19 @@
             background: linear-gradient(135deg, #218838 0%, #1fa080 100%);
         }
 
+        .sample-btn:disabled {
+            cursor: not-allowed;
+            opacity: 0.5;
+            background: linear-gradient(135deg, #9ca3af 0%, #b5bbc4 100%);
+            box-shadow: none;
+        }
+
+        .sample-btn:disabled:hover {
+            transform: none;
+            box-shadow: none;
+            background: linear-gradient(135deg, #9ca3af 0%, #b5bbc4 100%);
+        }
+
         .sample-btn.analyze-btn {
             background: linear-gradient(135deg, #2563eb 0%, #4f9cf9 100%);
         }
@@ -211,6 +224,13 @@
         .sample-btn.analyze-btn:hover {
             box-shadow: 0 10px 20px rgba(37, 99, 235, 0.3);
             background: linear-gradient(135deg, #1d4ed8 0%, #3b82f6 100%);
+        }
+
+        .sample-btn.analyze-btn:disabled,
+        .sample-btn.analyze-btn:disabled:hover {
+            background: linear-gradient(135deg, #9ca3af 0%, #b5bbc4 100%);
+            box-shadow: none;
+            transform: none;
         }
 
         .ai-loading {
