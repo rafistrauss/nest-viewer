@@ -304,22 +304,19 @@ class NestDataViewer {
         const records = this.getDataForAnalysis();
         if (!records.length) return null;
 
-        const times = records
-            .map(record => new Date(record.timestamp).getTime())
-            .filter(time => Number.isFinite(time))
-            .sort((a, b) => a - b);
-
-        if (!times.length) return null;
-
-        const dataStart = new Date(times[0]);
-        const dataEnd = new Date(times[times.length - 1]);
-        const windowStartBound = new Date(dataEnd.getTime() - (this.hvacAnalysisPeriodDays * 24 * 60 * 60 * 1000));
-        const analysisStart = windowStartBound > dataStart ? windowStartBound : dataStart;
-        const truncated = windowStartBound > dataStart;
-        const analyzedCount = records.filter(record => {
+        const dataStart = new Date(records[0].timestamp);
+        const dataEnd = new Date(records[records.length - 1].timestamp);
+        const analysisStartMs = Math.max(
+            dataStart.getTime(),
+            dataEnd.getTime() - (this.hvacAnalysisPeriodDays * 24 * 60 * 60 * 1000)
+        );
+        const analysisStart = new Date(analysisStartMs);
+        const truncated = analysisStartMs > dataStart.getTime();
+        let analyzedCount = 0;
+        records.forEach(record => {
             const time = new Date(record.timestamp).getTime();
-            return Number.isFinite(time) && time >= analysisStart.getTime();
-        }).length;
+            if (Number.isFinite(time) && time >= analysisStartMs) analyzedCount += 1;
+        });
 
         return { dataStart, dataEnd, analysisStart, analysisEnd: dataEnd, truncated, analyzedCount };
     }
