@@ -268,36 +268,36 @@
 
         .stats-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 20px;
-            padding: 30px;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 12px;
+            padding: 18px 30px;
         }
 
         .stat-card {
             background: white;
-            padding: 25px;
-            border-radius: 15px;
-            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.08);
+            padding: 14px 16px;
+            border-radius: 12px;
+            box-shadow: 0 3px 10px rgba(0, 0, 0, 0.06);
             text-align: center;
             transition: transform 0.3s ease;
         }
 
         .stat-card:hover {
-            transform: translateY(-5px);
+            transform: translateY(-3px);
         }
 
         .stat-value {
-            font-size: 2.5rem;
+            font-size: 1.6rem;
             font-weight: bold;
             color: #667eea;
-            margin-bottom: 5px;
+            margin-bottom: 3px;
         }
 
         .stat-label {
             color: #666;
-            font-size: 0.9rem;
+            font-size: 0.78rem;
             text-transform: uppercase;
-            letter-spacing: 1px;
+            letter-spacing: 0.5px;
         }
 
         .charts-section {
@@ -1154,7 +1154,7 @@
             justify-content: space-between;
             gap: 12px;
             flex-wrap: wrap;
-            margin-top: 12px;
+            margin-bottom: 12px;
             padding: 10px 14px;
             background: #fff7ed;
             border: 1px solid #fed7aa;
@@ -1505,12 +1505,12 @@
                     <span id="aiLoadingText">Generating analysis…</span>
                 </div>
                 <div id="aiStatus" style="margin-bottom: 10px; color: #666;"></div>
+                <div id="anomalyBanner" class="anomaly-banner" style="display: none;"></div>
                 <div id="aiOutputToolbar" style="display: none; justify-content: flex-end; margin-bottom: 8px;">
                     <button id="toggleAIRaw" class="filter-btn" type="button">View raw response</button>
                 </div>
                 <div id="aiOutput" class="ai-output">AI output will appear here.</div>
                 <pre id="aiOutputRaw" class="ai-output-raw" style="display: none;"></pre>
-                <div id="anomalyBanner" class="anomaly-banner" style="display: none;"></div>
             </div>
         </div>
     </div>
