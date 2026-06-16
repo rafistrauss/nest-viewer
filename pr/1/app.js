@@ -220,7 +220,6 @@ class NestDataViewer {
     initializeAISection() {
         this.updateApiKeyUI();
         this.updateAIDataPreview();
-        this.setAIStatus('Configure a Gemini API key to enable AI analysis.', 'info');
         this.updateAIActionState();
     }
 
@@ -386,6 +385,21 @@ class NestDataViewer {
 
         document.getElementById('analyzeHVACWithAI').disabled = !hasData || !hasKey || isLoading;
         document.getElementById('cancelAIRequest').style.display = isLoading ? 'inline-block' : 'none';
+
+        // Surface the most relevant prerequisite hint, but only while idle so we
+        // don't overwrite an in-progress spinner or a completed result.
+        if (!isLoading && !this.aiRequestInFlight) {
+            const statusElement = document.getElementById('aiStatus');
+            const showingResult = Boolean(this.aiRawOutput);
+            if (!hasKey) {
+                this.setAIStatus('Configure a Gemini API key to enable AI analysis.', 'info');
+            } else if (!hasData) {
+                this.setAIStatus('Upload data to enable AI analysis.', 'info');
+            } else if (statusElement && !showingResult) {
+                // Prerequisites met and nothing to report yet — clear stale hints.
+                this.setAIStatus('');
+            }
+        }
     }
 
     setAIStatus(message, type = 'info') {
