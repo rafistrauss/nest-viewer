@@ -20,8 +20,11 @@ class NestDataViewer {
         this.showHeatingTarget = false;
         this.uploadCollapsed = false;
         this.storageKey = 'nestViewer.uploadedData.v1';
+        this.settingsKey = 'nestViewer.settings.v1';
         this.pendingPersist = null;
         this.restoringFromStorage = false;
+        this.settings = this.loadSettings();
+        this.applyLoadedSettings();
         this.initializeEventListeners();
         this.initializeWorker();
         this.initializeAISection();
@@ -66,6 +69,7 @@ class NestDataViewer {
 
         document.getElementById('showCoolingTarget').addEventListener('change', (event) => {
             this.showCoolingTarget = event.target.checked;
+            this.saveSetting('showCoolingTarget', event.target.checked);
             if (this.charts.temperature) {
                 this.updateTemperatureChart();
             }
@@ -73,6 +77,7 @@ class NestDataViewer {
 
         document.getElementById('showHeatingTarget').addEventListener('change', (event) => {
             this.showHeatingTarget = event.target.checked;
+            this.saveSetting('showHeatingTarget', event.target.checked);
             if (this.charts.temperature) {
                 this.updateTemperatureChart();
             }
@@ -91,6 +96,7 @@ class NestDataViewer {
         runtimeAggInputs.forEach(input => {
             input.addEventListener('change', (event) => {
                 this.runtimeAggregation = event.target.value;
+                this.saveSetting('runtimeAggregation', event.target.value);
                 if (this.data.length > 0) {
                     this.debouncedUpdate(() => {
                         this.updateRuntimeChart();
@@ -104,6 +110,7 @@ class NestDataViewer {
         correlationAggInputs.forEach(input => {
             input.addEventListener('change', (event) => {
                 this.correlationAggregation = event.target.value;
+                this.saveSetting('correlationAggregation', event.target.value);
                 if (this.data.length > 0) {
                     this.debouncedUpdate(() => {
                         this.updateCorrelationChart();
@@ -635,6 +642,55 @@ class NestDataViewer {
             // Trigger the change event to process the file
             const event = new Event('change', { bubbles: true });
             fileInput.dispatchEvent(event);
+        }
+    }
+
+    loadSettings() {
+        try {
+            const raw = localStorage.getItem(this.settingsKey);
+            if (!raw) return {};
+            const parsed = JSON.parse(raw);
+            return (parsed && typeof parsed === 'object') ? parsed : {};
+        } catch (error) {
+            console.warn('Could not load saved settings:', error);
+            return {};
+        }
+    }
+
+    saveSetting(key, value) {
+        this.settings[key] = value;
+        try {
+            localStorage.setItem(this.settingsKey, JSON.stringify(this.settings));
+        } catch (error) {
+            console.warn('Could not save settings:', error);
+        }
+    }
+
+    applyLoadedSettings() {
+        const s = this.settings || {};
+
+        if (typeof s.showCoolingTarget === 'boolean') {
+            this.showCoolingTarget = s.showCoolingTarget;
+            const el = document.getElementById('showCoolingTarget');
+            if (el) el.checked = s.showCoolingTarget;
+        }
+
+        if (typeof s.showHeatingTarget === 'boolean') {
+            this.showHeatingTarget = s.showHeatingTarget;
+            const el = document.getElementById('showHeatingTarget');
+            if (el) el.checked = s.showHeatingTarget;
+        }
+
+        if (typeof s.runtimeAggregation === 'string') {
+            this.runtimeAggregation = s.runtimeAggregation;
+            const el = document.querySelector(`input[name="runtimeAggregation"][value="${s.runtimeAggregation}"]`);
+            if (el) el.checked = true;
+        }
+
+        if (typeof s.correlationAggregation === 'string') {
+            this.correlationAggregation = s.correlationAggregation;
+            const el = document.querySelector(`input[name="correlationAggregation"][value="${s.correlationAggregation}"]`);
+            if (el) el.checked = true;
         }
     }
 
