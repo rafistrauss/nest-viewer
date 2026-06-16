@@ -340,11 +340,22 @@ class NestDataViewer {
             return;
         }
 
-        const rangeText = `${this.formatAnalysisDate(window.analysisStart)} – ${this.formatAnalysisDate(window.analysisEnd)}`;
+        const startDate = `<span class="analysis-date">${this.escapeHtml(this.formatAnalysisDate(window.analysisStart))}</span>`;
+        const endDate = `<span class="analysis-date">${this.escapeHtml(this.formatAnalysisDate(window.analysisEnd))}</span>`;
+        const rangeText = `${startDate} – ${endDate}`;
         const detail = window.truncated
             ? `Analyzes the most recent ${this.hvacAnalysisPeriodDays} days of the selected data (${rangeText}).`
             : `Analyzes the selected data (${rangeText}).`;
-        info.textContent = `📊 ${detail} ${window.analyzedCount.toLocaleString()} records, summarized week-by-week.`;
+        info.innerHTML = `📊 ${detail} ${window.analyzedCount.toLocaleString()} records, summarized week-by-week.`;
+    }
+
+    escapeHtml(text) {
+        return String(text)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
     }
 
     updateAIDataPreview() {
@@ -381,6 +392,19 @@ class NestDataViewer {
         const statusElement = document.getElementById('aiStatus');
         statusElement.textContent = message;
         statusElement.style.color = type === 'error' ? '#c0392b' : (type === 'success' ? '#0a7f3f' : '#666');
+    }
+
+    setAILoading(active, message) {
+        const loading = document.getElementById('aiLoading');
+        const text = document.getElementById('aiLoadingText');
+        if (!loading) return;
+        if (text && message) text.textContent = message;
+        loading.classList.toggle('active', Boolean(active));
+        // While loading, the status line is redundant with the spinner label.
+        if (active) {
+            const statusElement = document.getElementById('aiStatus');
+            if (statusElement) statusElement.textContent = '';
+        }
     }
 
     setAIOutput(content) {
@@ -683,6 +707,7 @@ class NestDataViewer {
         this.aiRequestInFlight = true;
         this.aiRequestController = new AbortController();
         this.updateAIActionState(true);
+        this.setAILoading(true);
 
         try {
             await requestCallback(this.aiRequestController.signal);
@@ -697,6 +722,7 @@ class NestDataViewer {
             this.aiRequestInFlight = false;
             this.aiRequestController = null;
             this.updateAIActionState(false);
+            this.setAILoading(false);
         }
     }
 
@@ -713,7 +739,7 @@ class NestDataViewer {
         });
 
         await this.runAIRequest(async (signal) => {
-            this.setAIStatus('Analyzing HVAC performance with Gemini...');
+            this.setAILoading(true, 'Analyzing HVAC performance with Gemini…');
             const output = await this.aiService.analyzeHVAC(summary, {
                 cacheKey: `hvac:${JSON.stringify(summary)}`,
                 signal
