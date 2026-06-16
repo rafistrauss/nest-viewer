@@ -141,6 +141,22 @@
         return date.toISOString().slice(0, 10);
     }
 
+    function monthStartKey(timestamp) {
+        const date = new Date(timestamp);
+        date.setUTCHours(0, 0, 0, 0);
+        date.setUTCDate(1);
+        return date.toISOString().slice(0, 10);
+    }
+
+    function quarterStartKey(timestamp) {
+        const date = new Date(timestamp);
+        date.setUTCHours(0, 0, 0, 0);
+        const month = date.getUTCMonth();
+        const quarterMonth = month - (month % 3);
+        date.setUTCMonth(quarterMonth, 1);
+        return date.toISOString().slice(0, 10);
+    }
+
     function dayStartKey(timestamp) {
         const date = new Date(timestamp);
         date.setUTCHours(0, 0, 0, 0);
@@ -184,13 +200,35 @@
      * day-to-day trends, so fall back to daily granularity. For longer
      * spans, daily would produce too many buckets, so use weekly.
      */
-    function chooseBreakdownGranularity(spanDays) {
-        return spanDays <= 16 ? 'daily' : 'weekly';
+    function chooseBreakdownGranularity(spanDays, maxBuckets = 60) {
+        if (!Number.isFinite(spanDays) || spanDays <= 0) {
+            return 'daily';
+        }
+        const plan = [
+            { granularity: 'daily', daysPerBucket: 1 },
+            { granularity: 'weekly', daysPerBucket: 7 },
+            { granularity: 'monthly', daysPerBucket: 30.5 },
+            { granularity: 'quarterly', daysPerBucket: 91.5 }
+        ];
+
+        for (const option of plan) {
+            if ((spanDays / option.daysPerBucket) <= maxBuckets) {
+                return option.granularity;
+            }
+        }
+        return 'quarterly';
     }
 
     function buildBreakdown(records, gapToleranceMinutes, granularity) {
-        const keyFor = granularity === 'daily' ? dayStartKey : weekStartKey;
-        const periodKey = granularity === 'daily' ? 'dayStart' : 'weekStart';
+        const keyConfig = {
+            daily: { keyFor: dayStartKey, periodKey: 'dayStart' },
+            weekly: { keyFor: weekStartKey, periodKey: 'weekStart' },
+            monthly: { keyFor: monthStartKey, periodKey: 'monthStart' },
+            quarterly: { keyFor: quarterStartKey, periodKey: 'quarterStart' }
+        };
+        const selected = keyConfig[granularity] || keyConfig.weekly;
+        const keyFor = selected.keyFor;
+        const periodKey = selected.periodKey;
         const buckets = new Map();
         records.forEach(record => {
             const key = keyFor(record.timestamp);
@@ -242,9 +280,29 @@
             actualDataSpanDays: 0,
             dataPoints: 0,
             breakdownGranularity: 'weekly',
+            breakdownBucketCount: 0,
             periodBreakdown: [],
             weeklyBreakdown: []
         };
+    }
+
+    function ensureChronologicalOrder(records) {
+        if (records.length < 2) return records;
+        for (let i = 1; i < records.length; i += 1) {
+            const previous = new Date(records[i - 1].timestamp).getTime();
+            const current = new Date(records[i].timestamp).getTime();
+            if (!Number.isFinite(previous) || !Number.isFinite(current) || current < previous) {
+                return [...records].sort((left, right) => new Date(left.timestamp) - new Date(right.timestamp));
+            }
+        }
+        return records;
+    }
+
+    function getBreakdownGranularityForSpanDays(spanDays, options = {}) {
+        const maxBreakdownBuckets = Number.isFinite(options.maxBreakdownBuckets)
+            ? options.maxBreakdownBuckets
+            : 60;
+        return chooseBreakdownGranularity(spanDays, maxBreakdownBuckets);
     }
 
     /**
@@ -263,10 +321,20 @@
             ? options.gapToleranceMinutes
             : DEFAULT_GAP_TOLERANCE_MINUTES;
 
-        const sortedRecords = [...records].sort((left, right) => new Date(left.timestamp) - new Date(right.timestamp));
-        const windowEnd = new Date(sortedRecords[sortedRecords.length - 1].timestamp);
-        const windowStart = new Date(windowEnd.getTime() - (analysisPeriodDays * 24 * 60 * 60 * 1000));
-        const windowedRecords = sortedRecords.filter(record => new Date(record.timestamp) >= windowStart);
+        const sortedRecords = ensureChronologicalOrder(records);
+        const windowEndMs = new Date(sortedRecords[sortedRecords.length - 1].timestamp).getTime();
+        const effectivePeriodDays = Number.isFinite(analysisPeriodDays) && analysisPeriodDays > 0
+            ? analysisPeriodDays
+            : 30;
+        const windowStartMs = windowEndMs - (effectivePeriodDays * 24 * 60 * 60 * 1000);
+        const windowedRecords = [];
+        for (let i = 0; i < sortedRecords.length; i += 1) {
+            const record = sortedRecords[i];
+            const time = new Date(record.timestamp).getTime();
+            if (Number.isFinite(time) && time >= windowStartMs) {
+                windowedRecords.push(record);
+            }
+        }
 
         const coolingCycles = getCycleDurations(windowedRecords, 'cooling', gapToleranceMinutes);
         const heatingCycles = getCycleDurations(windowedRecords, 'heating', gapToleranceMinutes);
@@ -291,11 +359,14 @@
         const coolingSetpoint = setpointStats(windowedRecords, 'cooling');
         const heatingSetpoint = setpointStats(windowedRecords, 'heating');
 
-        const breakdownGranularity = chooseBreakdownGranularity(actualSpanDays);
+        const maxBreakdownBuckets = Number.isFinite(options.maxBreakdownBuckets)
+            ? options.maxBreakdownBuckets
+            : 60;
+        const breakdownGranularity = chooseBreakdownGranularity(actualSpanDays, maxBreakdownBuckets);
         const periodBreakdown = buildBreakdown(windowedRecords, gapToleranceMinutes, breakdownGranularity);
 
         return {
-            analysisPeriodDays,
+            analysisPeriodDays: effectivePeriodDays,
             temperatureUnit,
             dataStart: new Date(firstTime).toISOString(),
             dataEnd: new Date(lastTime).toISOString(),
@@ -326,6 +397,7 @@
             actualDataSpanDays: round(actualSpanDays),
             dataPoints: windowedRecords.length,
             breakdownGranularity,
+            breakdownBucketCount: periodBreakdown.length,
             periodBreakdown,
             // Retained for backward compatibility; equals periodBreakdown when
             // granularity is weekly, otherwise empty.
@@ -335,11 +407,13 @@
 
     globalScope.NestAI = globalScope.NestAI || {};
     globalScope.NestAI.summarizeHVACData = summarizeHVACData;
+    globalScope.NestAI.getBreakdownGranularityForSpanDays = getBreakdownGranularityForSpanDays;
 
     if (typeof module !== 'undefined' && module.exports) {
         module.exports = {
             ...(module.exports || {}),
-            summarizeHVACData
+            summarizeHVACData,
+            getBreakdownGranularityForSpanDays
         };
     }
 })(typeof window !== 'undefined' ? window : globalThis);
