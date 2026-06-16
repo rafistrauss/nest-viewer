@@ -1086,6 +1086,58 @@
             min-height: 70px;
             font-size: 0.88rem;
         }
+        .collapse-toggle {
+            margin-left: 10px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: #4f46e5;
+            background: #eef2ff;
+            border: 1px solid #c7d2fe;
+            border-radius: 999px;
+            padding: 4px 12px;
+            cursor: pointer;
+            vertical-align: middle;
+        }
+        .collapse-toggle:hover { background: #e0e7ff; }
+        .upload-summary {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            margin-top: 4px;
+            color: #374151;
+            font-size: 0.95rem;
+        }
+        .upload-summary .upload-summary-edit {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: #4f46e5;
+            background: none;
+            border: none;
+            cursor: pointer;
+            text-decoration: underline;
+        }
+        .tip-details {
+            margin-bottom: 16px;
+            border: 1px solid #e7edf3;
+            border-radius: 10px;
+            background: #f8fafc;
+            padding: 10px 14px;
+        }
+        .tip-details > summary {
+            cursor: pointer;
+            color: #555;
+            font-size: 0.92rem;
+            list-style: none;
+            text-align: center;
+        }
+        .tip-details > summary::-webkit-details-marker { display: none; }
+        .tip-details > summary::before {
+            content: '▸ ';
+            color: #888;
+        }
+        .tip-details[open] > summary::before { content: '▾ '; }
     </style>
 </head>
 <body>
@@ -1095,10 +1147,13 @@
             <p>Visualize your HVAC runtime data with interactive charts</p>
         </div>
 
-        <div class="upload-section">
+        <div class="upload-section" id="uploadSection">
             <h2>Upload Your Nest Data 
                 <button id="helpButton" class="help-button" title="How to get Nest data">❓</button>
+                <button id="toggleUploadSection" class="collapse-toggle" type="button" style="display: none;">Hide</button>
             </h2>
+            <div id="uploadSummary" class="upload-summary" style="display: none;"></div>
+            <div id="uploadSectionBody">
             <div class="file-input-wrapper" id="dropZone">
                 <input type="file" id="fileInput" class="file-input" accept=".jsonl,.json" />
                 <label for="fileInput" class="file-input-label">
@@ -1144,16 +1199,18 @@
                 </div>
                 <div id="validationWarningDetails" class="validation-warning-details"></div>
             </div>
+            </div>
         </div>
 
         <div id="filterSection" class="filter-section" style="display: none;">
             <h3>📅 Date Range Filter</h3>
-            <div class="chart-selection-info">
-                <p style="text-align: center; color: #666; font-size: 0.9rem; margin-bottom: 20px;">
-                    💡 <strong>Tip:</strong> You can also select date ranges by zooming on any chart below!<br>
-                    <small>Use mouse wheel to zoom, drag to pan, or drag to select a range</small>
+            <details class="chart-selection-info tip-details">
+                <summary>💡 <strong>Tip:</strong> select date ranges directly on the charts</summary>
+                <p style="text-align: center; color: #666; font-size: 0.9rem; margin: 12px 0 0;">
+                    You can also select date ranges by dragging directly on any chart below!<br>
+                    <small>Drag to select a range, or hold Shift and drag to pan. Use the “Reset Chart Zoom” button to clear.</small>
                 </p>
-            </div>
+            </details>
             <div class="filter-controls">
                 <div class="date-input-group">
                     <label for="startDate">Start Date:</label>
@@ -1283,14 +1340,10 @@
                     <div id="aiDataPreview" style="color: #4b5563; font-size: 0.92rem; white-space: pre-line;">- No dataset selected</div>
                 </div>
                 <div style="display: grid; gap: 12px; margin-bottom: 14px;">
-                    <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
-                        <label for="eventSelector" style="font-weight: 600;">Thermostat Event:</label>
-                        <select id="eventSelector" style="flex: 1; min-width: 260px; border: 1px solid #ddd; border-radius: 8px; padding: 8px;"></select>
-                        <button id="explainEventWithAI" class="sample-btn" type="button">Explain with AI</button>
-                    </div>
                     <div>
                         <button id="analyzeHVACWithAI" class="sample-btn" type="button">Analyze HVAC Performance</button>
                         <button id="cancelAIRequest" class="filter-btn reset-btn" type="button" style="margin-left: 8px; display: none;">Cancel</button>
+                        <div id="hvacAnalysisInfo" style="margin-top: 8px; color: #4b5563; font-size: 0.88rem;"></div>
                     </div>
                 </div>
                 <div id="aiStatus" style="margin-bottom: 10px; color: #666;"></div>
@@ -1361,7 +1414,6 @@
 
     <script src="ai/AIProvider.js"></script>
     <script src="ai/GeminiProvider.js"></script>
-    <script src="ai/prompts/buildEventExplanationPrompt.js"></script>
     <script src="ai/prompts/buildHVACAnalysisPrompt.js"></script>
     <script src="ai/summarizers/summarizeHVACData.js"></script>
     <script src="ai/markdown/renderMarkdown.js"></script>

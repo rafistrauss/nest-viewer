@@ -86,16 +86,6 @@
             }
         }
 
-        async explainEvent(eventSummary, options = {}) {
-            const prompt = globalScope.NestAI.buildEventExplanationPrompt(eventSummary);
-            return this.analyzePrompt(prompt, {
-                ...options,
-                label: 'event explanation',
-                data: eventSummary,
-                cacheKey: options.cacheKey || `event:${JSON.stringify(eventSummary)}`
-            });
-        }
-
         async analyzeHVAC(summary, options = {}) {
             const prompt = globalScope.NestAI.buildHVACAnalysisPrompt(summary);
             return this.analyzePrompt(prompt, {
