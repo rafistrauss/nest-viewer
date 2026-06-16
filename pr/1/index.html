@@ -204,6 +204,48 @@
             background: linear-gradient(135deg, #218838 0%, #1fa080 100%);
         }
 
+        .sample-btn.analyze-btn {
+            background: linear-gradient(135deg, #2563eb 0%, #4f9cf9 100%);
+        }
+
+        .sample-btn.analyze-btn:hover {
+            box-shadow: 0 10px 20px rgba(37, 99, 235, 0.3);
+            background: linear-gradient(135deg, #1d4ed8 0%, #3b82f6 100%);
+        }
+
+        .ai-loading {
+            display: none;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 10px;
+            color: #2563eb;
+            font-size: 0.92rem;
+            font-weight: 500;
+        }
+
+        .ai-loading.active {
+            display: flex;
+        }
+
+        .ai-spinner {
+            width: 18px;
+            height: 18px;
+            border: 3px solid rgba(37, 99, 235, 0.25);
+            border-top-color: #2563eb;
+            border-radius: 50%;
+            animation: aiSpin 0.8s linear infinite;
+            flex-shrink: 0;
+        }
+
+        @keyframes aiSpin {
+            to { transform: rotate(360deg); }
+        }
+
+        .analysis-date {
+            color: #2563eb;
+            font-weight: 600;
+        }
+
         .stats-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
@@ -1424,7 +1466,7 @@
                             <button id="removeApiKey" class="filter-btn reset-btn" type="button">Remove API Key</button>
                         </div>
                         <div id="apiKeyStatus" style="margin-top: 8px; color: #666; font-size: 0.92rem;">No API key configured.</div>
-                        <div style="margin-top: 4px; color: #666; font-size: 0.86rem;">Need an API key? Create one in Google AI Studio.</div>
+                        <div style="margin-top: 4px; color: #666; font-size: 0.86rem;">Need an API key? <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">Create one in Google AI Studio.</a></div>
                     </div>
                 </div>
                 <div style="background: #f8fafc; border: 1px solid #e7edf3; border-radius: 10px; padding: 12px; margin-bottom: 16px;">
@@ -1433,10 +1475,14 @@
                 </div>
                 <div style="display: grid; gap: 12px; margin-bottom: 14px;">
                     <div>
-                        <button id="analyzeHVACWithAI" class="sample-btn" type="button">Analyze HVAC Performance</button>
+                        <button id="analyzeHVACWithAI" class="sample-btn analyze-btn" type="button">Analyze HVAC Performance</button>
                         <button id="cancelAIRequest" class="filter-btn reset-btn" type="button" style="margin-left: 8px; display: none;">Cancel</button>
                         <div id="hvacAnalysisInfo" style="margin-top: 8px; color: #4b5563; font-size: 0.88rem;"></div>
                     </div>
+                </div>
+                <div id="aiLoading" class="ai-loading">
+                    <span class="ai-spinner" aria-hidden="true"></span>
+                    <span id="aiLoadingText">Generating analysis…</span>
                 </div>
                 <div id="aiStatus" style="margin-bottom: 10px; color: #666;"></div>
                 <div id="aiOutputToolbar" style="display: none; justify-content: flex-end; margin-bottom: 8px;">
