@@ -224,10 +224,9 @@ class NestDataViewer {
     }
 
     getDataForAnalysis() {
-        if (this.filteredData.length > 0) {
-            return this.filteredData;
-        }
-        return this.data;
+        // filteredData is the current active selection; if it's empty, treat that as
+        // "no data" (e.g. an empty date-range filter) rather than falling back.
+        return Array.isArray(this.filteredData) ? this.filteredData : this.data;
     }
 
     updateApiKeyUI(message = '') {
