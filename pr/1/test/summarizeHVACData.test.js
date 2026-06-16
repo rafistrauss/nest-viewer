@@ -77,26 +77,52 @@ test('summarizeHVACData flags counterproductive cooling intervals', () => {
     assert.equal(result.coolingIntervalsTempRose, 1);
 });
 
-test('summarizeHVACData exposes a weekly breakdown to preserve trends', () => {
+test('summarizeHVACData exposes a period breakdown to preserve trends', () => {
     const records = [
-        // Week 1: anomalously high runtime in mild weather (problem period)
+        // Early period: anomalously high runtime in mild weather (problem period)
         { timestamp: '2026-06-01T00:00:00Z', indoor_temp: 26, outdoor_temp: 21, cooling_time: 900, heating_time: 0, cooling_target: 22 },
         { timestamp: '2026-06-01T00:15:00Z', indoor_temp: 26, outdoor_temp: 21, cooling_time: 900, heating_time: 0, cooling_target: 22 },
         { timestamp: '2026-06-01T00:30:00Z', indoor_temp: 25.5, outdoor_temp: 21, cooling_time: 900, heating_time: 0, cooling_target: 22 },
-        // Week 2: normal short runtime even in hotter weather (resolved)
+        // Later period: normal short runtime even in hotter weather (resolved)
         { timestamp: '2026-06-10T00:00:00Z', indoor_temp: 22.5, outdoor_temp: 30, cooling_time: 300, heating_time: 0, cooling_target: 22 },
         { timestamp: '2026-06-10T00:15:00Z', indoor_temp: 22, outdoor_temp: 30, cooling_time: 0, heating_time: 0, cooling_target: 22 }
     ];
 
     const result = summarizeHVACData(records, 30);
-    assert.equal(result.weeklyBreakdown.length, 2);
+    // A ~9-day span is short, so daily granularity is used.
+    assert.equal(result.breakdownGranularity, 'daily');
+    assert.equal(result.periodBreakdown.length, 2);
 
-    const [week1, week2] = result.weeklyBreakdown;
-    assert.ok(week1.coolingRuntimeHours > week2.coolingRuntimeHours);
-    assert.ok(week1.avgOutdoorTemp < week2.avgOutdoorTemp);
-    // The problem week ran far more despite cooler weather; the trend must be visible.
-    assert.ok(week1.avgIndoorMinusCoolingTarget > week2.avgIndoorMinusCoolingTarget);
-    assert.ok(week1.weekStart < week2.weekStart);
+    const [first, second] = result.periodBreakdown;
+    assert.ok(first.coolingRuntimeHours > second.coolingRuntimeHours);
+    assert.ok(first.avgOutdoorTemp < second.avgOutdoorTemp);
+    // The problem period ran far more despite cooler weather; the trend must be visible.
+    assert.ok(first.avgIndoorMinusCoolingTarget > second.avgIndoorMinusCoolingTarget);
+    assert.ok(first.dayStart < second.dayStart);
+});
+
+test('summarizeHVACData uses weekly granularity for long spans', () => {
+    const records = [];
+    // ~28 days of data, one reading per day, to force weekly bucketing.
+    for (let day = 0; day < 28; day++) {
+        const date = new Date('2026-06-01T00:00:00Z');
+        date.setUTCDate(date.getUTCDate() + day);
+        records.push({
+            timestamp: date.toISOString(),
+            indoor_temp: 22,
+            outdoor_temp: 28,
+            cooling_time: 300,
+            heating_time: 0,
+            cooling_target: 22
+        });
+    }
+
+    const result = summarizeHVACData(records, 30);
+    assert.equal(result.breakdownGranularity, 'weekly');
+    assert.ok(result.periodBreakdown.length >= 4);
+    assert.ok(result.periodBreakdown.every(bucket => typeof bucket.weekStart === 'string'));
+    // Backward-compatible alias is populated for weekly granularity.
+    assert.equal(result.weeklyBreakdown.length, result.periodBreakdown.length);
 });
 
 function round2(value) {

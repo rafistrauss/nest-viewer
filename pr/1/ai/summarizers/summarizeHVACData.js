@@ -141,6 +141,12 @@
         return date.toISOString().slice(0, 10);
     }
 
+    function dayStartKey(timestamp) {
+        const date = new Date(timestamp);
+        date.setUTCHours(0, 0, 0, 0);
+        return date.toISOString().slice(0, 10);
+    }
+
     /**
      * Compact per-bucket metrics so the model can see how behaviour changes
      * over time (e.g. an early-period problem that was later resolved) instead
@@ -172,10 +178,22 @@
         };
     }
 
-    function buildWeeklyBreakdown(records, gapToleranceMinutes) {
+    /**
+     * Choose how finely to bucket the breakdown. For short spans, weekly
+     * bucketing collapses everything into one or two buckets and hides
+     * day-to-day trends, so fall back to daily granularity. For longer
+     * spans, daily would produce too many buckets, so use weekly.
+     */
+    function chooseBreakdownGranularity(spanDays) {
+        return spanDays <= 16 ? 'daily' : 'weekly';
+    }
+
+    function buildBreakdown(records, gapToleranceMinutes, granularity) {
+        const keyFor = granularity === 'daily' ? dayStartKey : weekStartKey;
+        const periodKey = granularity === 'daily' ? 'dayStart' : 'weekStart';
         const buckets = new Map();
         records.forEach(record => {
-            const key = weekStartKey(record.timestamp);
+            const key = keyFor(record.timestamp);
             if (!buckets.has(key)) {
                 buckets.set(key, []);
             }
@@ -184,10 +202,10 @@
 
         return Array.from(buckets.keys())
             .sort()
-            .map(weekStart => ({
-                weekStart,
-                dataPoints: buckets.get(weekStart).length,
-                ...bucketMetrics(buckets.get(weekStart), gapToleranceMinutes)
+            .map(periodStart => ({
+                [periodKey]: periodStart,
+                dataPoints: buckets.get(periodStart).length,
+                ...bucketMetrics(buckets.get(periodStart), gapToleranceMinutes)
             }));
     }
 
@@ -221,6 +239,8 @@
             heatingIntervalsTempFell: 0,
             actualDataSpanDays: 0,
             dataPoints: 0,
+            breakdownGranularity: 'weekly',
+            periodBreakdown: [],
             weeklyBreakdown: []
         };
     }
@@ -269,6 +289,9 @@
         const coolingSetpoint = setpointStats(windowedRecords, 'cooling');
         const heatingSetpoint = setpointStats(windowedRecords, 'heating');
 
+        const breakdownGranularity = chooseBreakdownGranularity(actualSpanDays);
+        const periodBreakdown = buildBreakdown(windowedRecords, gapToleranceMinutes, breakdownGranularity);
+
         return {
             analysisPeriodDays,
             temperatureUnit,
@@ -298,7 +321,11 @@
             heatingIntervalsTempFell: heating.counterproductiveIntervals,
             actualDataSpanDays: round(actualSpanDays),
             dataPoints: windowedRecords.length,
-            weeklyBreakdown: buildWeeklyBreakdown(windowedRecords, gapToleranceMinutes)
+            breakdownGranularity,
+            periodBreakdown,
+            // Retained for backward compatibility; equals periodBreakdown when
+            // granularity is weekly, otherwise empty.
+            weeklyBreakdown: breakdownGranularity === 'weekly' ? periodBreakdown : []
         };
     }
 
