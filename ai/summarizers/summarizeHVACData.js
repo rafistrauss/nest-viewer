@@ -191,10 +191,10 @@
             }));
     }
 
-    function emptySummary(analysisPeriodDays) {
+    function emptySummary(analysisPeriodDays, temperatureUnit) {
         return {
             analysisPeriodDays,
-            temperatureUnit: 'source-native (unconverted)',
+            temperatureUnit,
             avgCoolingCycleMinutes: null,
             avgHeatingCycleMinutes: null,
             maxCoolingCycleMinutes: null,
@@ -232,8 +232,9 @@
      * @param {number} [options.gapToleranceMinutes]
      */
     function summarizeHVACData(records, analysisPeriodDays = 30, options = {}) {
+        const temperatureUnit = options.temperatureUnit || 'source-native (unconverted)';
         if (!Array.isArray(records) || records.length === 0) {
-            return emptySummary(analysisPeriodDays);
+            return emptySummary(analysisPeriodDays, temperatureUnit);
         }
 
         const gapToleranceMinutes = Number.isFinite(options.gapToleranceMinutes)
@@ -270,7 +271,7 @@
 
         return {
             analysisPeriodDays,
-            temperatureUnit: 'source-native (unconverted)',
+            temperatureUnit,
             avgCoolingCycleMinutes: round(average(coolingCycles)),
             avgHeatingCycleMinutes: round(average(heatingCycles)),
             maxCoolingCycleMinutes: coolingCycles.length ? round(Math.max(...coolingCycles)) : null,

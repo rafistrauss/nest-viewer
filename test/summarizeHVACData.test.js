@@ -28,6 +28,15 @@ test('summarizeHVACData handles empty input', () => {
     assert.equal(result.maxIndoorTemp, null);
 });
 
+test('summarizeHVACData labels the temperature unit from options', () => {
+    const records = [
+        { timestamp: '2026-07-01T00:00:00Z', indoor_temp: 70, outdoor_temp: 90, cooling_time: 600, heating_time: 0 }
+    ];
+    assert.equal(summarizeHVACData(records, 30, { temperatureUnit: 'Fahrenheit (°F)' }).temperatureUnit, 'Fahrenheit (°F)');
+    assert.equal(summarizeHVACData([], 30, { temperatureUnit: 'Celsius (°C)' }).temperatureUnit, 'Celsius (°C)');
+    assert.equal(summarizeHVACData(records, 30).temperatureUnit, 'source-native (unconverted)');
+});
+
 test('summarizeHVACData retains outdoor, humidity and setpoint context', () => {
     const records = [
         { timestamp: '2026-07-01T00:00:00Z', indoor_temp: 25, outdoor_temp: 33, indoor_humidity: 50, outdoor_humidity: 70, cooling_time: 600, heating_time: 0, cooling_target: 22 },

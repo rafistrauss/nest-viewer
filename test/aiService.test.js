@@ -2,7 +2,6 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 globalThis.NestAI = globalThis.NestAI || {};
-Object.assign(globalThis.NestAI, require('../ai/prompts/buildEventExplanationPrompt'));
 Object.assign(globalThis.NestAI, require('../ai/prompts/buildHVACAnalysisPrompt'));
 Object.assign(globalThis.NestAI, require('../ai/GeminiProvider'));
 
