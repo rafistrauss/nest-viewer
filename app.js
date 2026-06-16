@@ -342,11 +342,7 @@ class NestDataViewer {
         const startDate = `<span class="analysis-date">${this.escapeHtml(this.formatAnalysisDate(window.analysisStart))}</span>`;
         const endDate = `<span class="analysis-date">${this.escapeHtml(this.formatAnalysisDate(window.analysisEnd))}</span>`;
         const rangeText = `${startDate} – ${endDate}`;
-        const detail = window.truncated
-            ? `Analyzes the most recent ${this.hvacAnalysisPeriodDays} days of the selected data (${rangeText}).`
-            : `Analyzes the selected data (${rangeText}).`;
-        info.innerHTML = `📊 ${detail} ${window.analyzedCount.toLocaleString()} records, summarized week-by-week.`;
-    }
+        info.innerHTML = `📊 ${detail} ${window.analyzedCount.toLocaleString()} records, summarized over time.`;
 
     escapeHtml(text) {
         return String(text)
