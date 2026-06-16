@@ -16,11 +16,16 @@ class NestDataViewer {
         this.aiRequestInFlight = false;
         this.aiKeyVisible = false;
         this.hvacAnalysisPeriodDays = 30;
-        this.showTemperatureTargets = false;
+        this.showCoolingTarget = false;
+        this.showHeatingTarget = false;
         this.uploadCollapsed = false;
+        this.storageKey = 'nestViewer.uploadedData.v1';
+        this.pendingPersist = null;
+        this.restoringFromStorage = false;
         this.initializeEventListeners();
         this.initializeWorker();
         this.initializeAISection();
+        this.restorePersistedData();
     }
 
     initializeEventListeners() {
@@ -59,8 +64,15 @@ class NestDataViewer {
             this.resetAllChartsZoom();
         });
 
-        document.getElementById('showTemperatureTargets').addEventListener('change', (event) => {
-            this.showTemperatureTargets = event.target.checked;
+        document.getElementById('showCoolingTarget').addEventListener('change', (event) => {
+            this.showCoolingTarget = event.target.checked;
+            if (this.charts.temperature) {
+                this.updateTemperatureChart();
+            }
+        });
+
+        document.getElementById('showHeatingTarget').addEventListener('change', (event) => {
+            this.showHeatingTarget = event.target.checked;
             if (this.charts.temperature) {
                 this.updateTemperatureChart();
             }
@@ -147,6 +159,10 @@ class NestDataViewer {
         // Sample data button listener
         document.getElementById('loadSampleData').addEventListener('click', () => {
             this.loadSampleData();
+        });
+
+        document.getElementById('clearSavedData').addEventListener('click', () => {
+            this.clearPersistedData();
         });
 
         document.getElementById('saveApiKey').addEventListener('click', () => {
@@ -470,6 +486,7 @@ class NestDataViewer {
                 this.showValidationWarning(); // Show warning if there were skipped lines
                 this.updateAIDataPreview();
                 this.updateAIActionState();
+                this.persistPendingData(); // Save uploaded data to localStorage
                 // Use setTimeout to allow UI to update before heavy processing
                 setTimeout(() => {
                     this.prepareChartData();
@@ -621,9 +638,121 @@ class NestDataViewer {
         }
     }
 
+    persistPendingData() {
+        if (!this.pendingPersist || this.restoringFromStorage) {
+            // Nothing new to save, or we just restored from storage
+            this.restoringFromStorage = false;
+            this.updateClearSavedDataButton();
+            return;
+        }
+
+        const { text, fileName } = this.pendingPersist;
+        try {
+            const payload = JSON.stringify({
+                version: 1,
+                fileName: fileName || 'uploaded.jsonl',
+                savedAt: new Date().toISOString(),
+                text
+            });
+            localStorage.setItem(this.storageKey, payload);
+        } catch (error) {
+            // Most commonly a QuotaExceededError for large files
+            console.warn('Could not save uploaded data for next visit:', error);
+            try {
+                localStorage.removeItem(this.storageKey);
+            } catch (_) { /* ignore */ }
+        }
+
+        this.pendingPersist = null;
+        this.updateClearSavedDataButton();
+    }
+
+    restorePersistedData() {
+        let payload;
+        try {
+            payload = localStorage.getItem(this.storageKey);
+        } catch (error) {
+            console.warn('Could not access saved data:', error);
+            return;
+        }
+
+        if (!payload) {
+            this.updateClearSavedDataButton();
+            return;
+        }
+
+        let parsed;
+        try {
+            parsed = JSON.parse(payload);
+        } catch (error) {
+            console.warn('Saved data was corrupt and will be cleared:', error);
+            this.clearPersistedData();
+            return;
+        }
+
+        if (!parsed || typeof parsed.text !== 'string' || !parsed.text.trim()) {
+            this.clearPersistedData();
+            return;
+        }
+
+        this.updateClearSavedDataButton();
+
+        if (this.isProcessing) return;
+
+        this.restoringFromStorage = true;
+        this.showLoading(true);
+        this.hideError();
+        this.isProcessing = true;
+
+        try {
+            if (this.dataWorker) {
+                this.dataWorker.postMessage({
+                    type: 'parseJSONL',
+                    data: { text: parsed.text }
+                });
+            } else {
+                this.data = this.parseJSONL(parsed.text);
+                this.prepareChartDataFallback();
+            }
+        } catch (error) {
+            console.warn('Failed to restore saved data:', error);
+            this.restoringFromStorage = false;
+            this.isProcessing = false;
+            this.showLoading(false);
+            this.clearPersistedData();
+        }
+    }
+
+    clearPersistedData() {
+        try {
+            localStorage.removeItem(this.storageKey);
+        } catch (error) {
+            console.warn('Could not clear saved data:', error);
+        }
+        this.pendingPersist = null;
+        this.updateClearSavedDataButton();
+    }
+
+    hasPersistedData() {
+        try {
+            return !!localStorage.getItem(this.storageKey);
+        } catch (error) {
+            return false;
+        }
+    }
+
+    updateClearSavedDataButton() {
+        const button = document.getElementById('clearSavedData');
+        if (!button) return;
+        button.style.display = this.hasPersistedData() ? 'inline-block' : 'none';
+    }
+
     async loadSampleData() {
         if (this.isProcessing) return;
-        
+
+        // Sample data is not persisted to localStorage
+        this.pendingPersist = null;
+
         this.showLoading(true);
         this.hideError();
         this.isProcessing = true;
@@ -671,7 +800,10 @@ class NestDataViewer {
             }
             
             const text = await this.readFile(file);
-            
+
+            // Stash for persistence once parsing succeeds
+            this.pendingPersist = { text, fileName: file.name };
+
             if (this.dataWorker) {
                 this.dataWorker.postMessage({
                     type: 'parseJSONL',
@@ -731,7 +863,8 @@ class NestDataViewer {
 
         this.updateProgressStep('processing');
         this.filteredData = [...this.data];
-        
+        this.persistPendingData(); // Save uploaded data to localStorage
+
         // Prepare chart data synchronously (fallback)
         setTimeout(() => {
             this.timeSeriesData = this.data.map(d => ({
@@ -1061,33 +1194,34 @@ class NestDataViewer {
             }
         ];
 
-        if (this.showTemperatureTargets) {
-            datasets.push(
-                {
-                    label: 'Cooling Target',
-                    data: coolingTargetData,
-                    borderColor: '#45b7d1',
-                    backgroundColor: 'rgba(69, 183, 209, 0.1)',
-                    borderWidth: 2,
-                    fill: false,
-                    tension: 0.3,
-                    borderDash: [5, 5],
-                    pointRadius: 0,
-                    pointHoverRadius: 4
-                },
-                {
-                    label: 'Heating Target',
-                    data: heatingTargetData,
-                    borderColor: '#f39c12',
-                    backgroundColor: 'rgba(243, 156, 18, 0.1)',
-                    borderWidth: 2,
-                    fill: false,
-                    tension: 0.3,
-                    borderDash: [5, 5],
-                    pointRadius: 0,
-                    pointHoverRadius: 4
-                }
-            );
+        if (this.showCoolingTarget) {
+            datasets.push({
+                label: 'Cooling Target',
+                data: coolingTargetData,
+                borderColor: '#45b7d1',
+                backgroundColor: 'rgba(69, 183, 209, 0.1)',
+                borderWidth: 2,
+                fill: false,
+                tension: 0.3,
+                borderDash: [5, 5],
+                pointRadius: 0,
+                pointHoverRadius: 4
+            });
+        }
+
+        if (this.showHeatingTarget) {
+            datasets.push({
+                label: 'Heating Target',
+                data: heatingTargetData,
+                borderColor: '#f39c12',
+                backgroundColor: 'rgba(243, 156, 18, 0.1)',
+                borderWidth: 2,
+                fill: false,
+                tension: 0.3,
+                borderDash: [5, 5],
+                pointRadius: 0,
+                pointHoverRadius: 4
+            });
         }
 
         this.charts.temperature = new Chart(document.getElementById('temperatureChart'), {
