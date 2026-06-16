@@ -40,7 +40,18 @@
             '- Potential concerns with confidence level',
             '',
             '## Recommendations',
-            '- Practical next steps, including when HVAC inspection may be warranted'
+            '- Practical next steps, including when HVAC inspection may be warranted',
+            '',
+            'After the markdown, if (and only if) you identified specific time ranges of concern, append a single fenced code block tagged "json" containing anomalies you want highlighted on the chart. Use this exact schema:',
+            '```json',
+            '{"anomalies":[{"start":"ISO-8601","end":"ISO-8601","severity":"high|medium|low","title":"short label","detail":"one or two sentence explanation"}]}',
+            '```',
+            'Rules for the JSON block:',
+            `- "start"/"end" MUST be ISO-8601 timestamps within the analyzed data range (${summary && summary.dataStart ? summary.dataStart : 'data start'} to ${summary && summary.dataEnd ? summary.dataEnd : 'data end'}). Use the period boundaries in "periodBreakdown" to pick ranges.`,
+            '- "severity": use "high" for likely faults, "medium" for things worth watching, "low" for minor/informational notes.',
+            '- "title" must be short (a few words); put the explanation in "detail".',
+            '- Only include anomalies tied to a real time range. If the system performed well with nothing notable, OMIT the JSON block entirely.',
+            '- Output the JSON block exactly once, after all markdown, and nothing after it.'
         ].join('\n');
     }
 
