@@ -360,7 +360,7 @@ class NestDataViewer {
             ? [
                 `- ${window.analyzedCount.toLocaleString()} records from ${this.formatAnalysisDate(window.analysisStart)} to ${this.formatAnalysisDate(window.analysisEnd)}${window.truncated ? ` (most recent ${this.hvacAnalysisPeriodDays} days)` : ''}`,
                 `- Temperatures in ${this.getTemperatureUnitLabel()}`,
-                '- Weekly breakdown of runtime and outdoor temperature',
+                '- Time-bucketed breakdown of runtime and outdoor temperature',
                 '- Cooling & heating cycle metrics',
                 '- Temperature performance and setpoint metrics'
             ].join('\n')
