@@ -2787,7 +2787,6 @@ class NestDataViewer {
                 datasets: [{
                     label: 'Efficiency Score (0–100, higher is better)',
                     data: pointData,
-                    parsing: false,
                     borderColor: '#667eea',
                     backgroundColor: 'rgba(102, 126, 234, 0.15)',
                     borderWidth: 2,
