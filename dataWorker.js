@@ -157,6 +157,95 @@ class DataProcessor {
         })).sort((a, b) => a.x - b.x);
     }
 
+    // Map a timestamp to a bucket key for the given aggregation granularity.
+    static bucketKeyForDate(date, aggregationType) {
+        const d = new Date(date);
+        switch (aggregationType) {
+            case 'hourly':
+                d.setMinutes(0, 0, 0);
+                return d.getTime();
+            case 'weekly': {
+                const dayOfWeek = d.getDay();
+                d.setDate(d.getDate() - dayOfWeek);
+                d.setHours(0, 0, 0, 0);
+                return d.getTime();
+            }
+            case 'daily':
+            default:
+                d.setHours(0, 0, 0, 0);
+                return d.getTime();
+        }
+    }
+
+    /**
+     * Weather-normalized HVAC efficiency aggregation ("energy signature").
+     * Works from RAW records (outdoor_temp in °C, *_time in seconds) so the
+     * degree-day math is unit-correct regardless of display unit.
+     *
+     * Per bucket it accumulates:
+     *  - coolingHours / heatingHours (runtime)
+     *  - cdd / hdd (cooling/heating degree-days vs baseTempC)
+     * The runtime-per-degree-day ratio (lower = more efficient) and the 0–100
+     * score are derived later in the app, where normalization lives.
+     */
+    static aggregateEfficiencyData(rawData, options = {}) {
+        const {
+            aggregationType = 'daily',
+            baseTempC = 18.333333 // 65°F, conventional degree-day base
+        } = options;
+
+        const buckets = new Map();
+
+        for (const record of rawData) {
+            if (!record) continue;
+            const rawOutdoor = record.outdoor_temp;
+            if (rawOutdoor == null || rawOutdoor === '') continue;
+            const outdoor = Number(rawOutdoor);
+            if (!Number.isFinite(outdoor)) continue;
+
+            const start = record.timestamp ? new Date(record.timestamp) : new Date(record.interval_start);
+            if (Number.isNaN(start.getTime())) continue;
+
+            // Interval length in hours (default 15 min) → day fraction for degree-days.
+            let intervalHours = 0.25;
+            if (record.interval_end && record.interval_start) {
+                const end = new Date(record.interval_end);
+                const startMs = new Date(record.interval_start).getTime();
+                const diffH = (end.getTime() - startMs) / 3600000;
+                if (Number.isFinite(diffH) && diffH > 0 && diffH <= 24) {
+                    intervalHours = diffH;
+                }
+            }
+            const dayFraction = intervalHours / 24;
+
+            const coolingHours = Math.max(0, Number(record.cooling_time) || 0) / 3600;
+            const heatingHours = Math.max(0, Number(record.heating_time) || 0) / 3600;
+
+            const cdd = Math.max(outdoor - baseTempC, 0) * dayFraction;
+            const hdd = Math.max(baseTempC - outdoor, 0) * dayFraction;
+
+            const key = this.bucketKeyForDate(start, aggregationType);
+            if (!buckets.has(key)) {
+                buckets.set(key, {
+                    x: new Date(key),
+                    coolingHours: 0,
+                    heatingHours: 0,
+                    cdd: 0,
+                    hdd: 0,
+                    count: 0
+                });
+            }
+            const b = buckets.get(key);
+            b.coolingHours += coolingHours;
+            b.heatingHours += heatingHours;
+            b.cdd += cdd;
+            b.hdd += hdd;
+            b.count++;
+        }
+
+        return Array.from(buckets.values()).sort((a, b) => a.x - b.x);
+    }
+
     static convertTemperature(tempC, targetUnit) {
         // Preserve null/missing values so charts render a gap instead of a
         // bogus 32°F point (null * 9/5 + 32 === 32).
@@ -286,6 +375,20 @@ self.onmessage = function(e) {
                     type: 'temperatureAggregated',
                     data: tempAggregatedData,
                     aggregationType: tempAggType
+                });
+                break;
+                
+            case 'aggregateEfficiency':
+                const { efficiencyRawData, aggregationType: effAggType, baseTempC } = data;
+                const efficiencyAggregated = DataProcessor.aggregateEfficiencyData(efficiencyRawData, {
+                    aggregationType: effAggType,
+                    baseTempC: baseTempC
+                });
+
+                self.postMessage({
+                    type: 'efficiencyAggregated',
+                    data: efficiencyAggregated,
+                    aggregationType: effAggType
                 });
                 break;
                 

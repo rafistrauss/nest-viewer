@@ -1515,6 +1515,63 @@
                 </div>
             </div>
 
+            <div class="chart-container">
+                <h3 class="chart-title">📈 HVAC Efficiency Score</h3>
+                <p style="color: #555; margin-bottom: 12px; font-size: 0.9rem;">
+                    A <strong>weather-normalized</strong> view of how hard your system works:
+                    runtime per <a href="https://en.wikipedia.org/wiki/Heating_degree_day" target="_blank" rel="noopener noreferrer">degree-day</a>.
+                    Higher score = less runtime for the same weather demand.
+                    <em>This is not a certified SEER/COP rating</em> — Nest data has no energy-use figures, so this reflects runtime efficiency only.
+                </p>
+                <div class="chart-controls" style="flex-wrap: wrap; gap: 16px;">
+                    <div>
+                        <label class="control-label">Aggregate by:</label>
+                        <div class="aggregation-toggle">
+                            <input type="radio" id="efficiency-hourly" name="efficiencyAggregation" value="hourly">
+                            <label for="efficiency-hourly">Hourly</label>
+                            <input type="radio" id="efficiency-daily" name="efficiencyAggregation" value="daily" checked>
+                            <label for="efficiency-daily">Daily</label>
+                            <input type="radio" id="efficiency-weekly" name="efficiencyAggregation" value="weekly">
+                            <label for="efficiency-weekly">Weekly</label>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="control-label">Mode:</label>
+                        <div class="aggregation-toggle">
+                            <input type="radio" id="efficiency-mode-auto" name="efficiencyMode" value="auto" checked>
+                            <label for="efficiency-mode-auto">Auto</label>
+                            <input type="radio" id="efficiency-mode-cooling" name="efficiencyMode" value="cooling">
+                            <label for="efficiency-mode-cooling">Cooling</label>
+                            <input type="radio" id="efficiency-mode-heating" name="efficiencyMode" value="heating">
+                            <label for="efficiency-mode-heating">Heating</label>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="control-label">Score baseline:</label>
+                        <div class="aggregation-toggle">
+                            <input type="radio" id="efficiency-norm-relative" name="efficiencyNormalization" value="relative" checked>
+                            <label for="efficiency-norm-relative">Relative</label>
+                            <input type="radio" id="efficiency-norm-fixed" name="efficiencyNormalization" value="fixed">
+                            <label for="efficiency-norm-fixed">Fixed</label>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="control-label" for="efficiencyBaseTemp">Base temp:</label>
+                        <input type="number" id="efficiencyBaseTemp" value="65" step="1" style="width: 70px; border: 1px solid #d0d7de; border-radius: 8px; padding: 6px 8px;">
+                        <span id="efficiencyBaseUnit">°F</span>
+                    </div>
+                </div>
+                <div id="efficiencyEmpty" style="display: none; color: #6b7280; font-size: 0.9rem; margin: 8px 0;">
+                    Not enough weather demand in this range to score efficiency. Try a wider date range or a different mode (heating/cooling).
+                </div>
+                <div class="chart-wrapper">
+                    <canvas id="efficiencyChart"></canvas>
+                </div>
+                <p style="color: #6b7280; font-size: 0.82rem; margin-top: 10px;">
+                    Blue points = cooling, orange = heating. <strong>Relative</strong> scores compare your own best/worst periods (great for spotting trends, not comparable between homes). <strong>Fixed</strong> uses an estimated absolute baseline (comparable across homes and over time).
+                </p>
+            </div>
+
             <div id="aiSection" class="chart-container" style="margin-top: 30px;">
                 <h3 class="chart-title">🤖 AI Analysis</h3>
                 <p style="color: #555; margin-bottom: 14px;">Your API key is stored only in your browser and is sent directly to Google's Gemini API.</p>

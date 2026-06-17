@@ -6,6 +6,10 @@ class NestDataViewer {
         this.temperatureUnit = 'F'; // Default to Fahrenheit
         this.runtimeAggregation = '15min'; // Default aggregation
         this.correlationAggregation = '15min'; // Default aggregation for correlation chart
+        this.efficiencyAggregation = 'daily'; // Efficiency chart defaults to daily to reduce noise
+        this.efficiencyMode = 'auto'; // 'auto' | 'cooling' | 'heating'
+        this.efficiencyNormalization = 'relative'; // 'relative' | 'fixed'
+        this.efficiencyBaseTempF = 65; // Conventional degree-day base (65°F / 18.3°C)
         this.timeSeriesData = []; // Cached processed data
         this.isProcessing = false;
         this.dataWorker = null;
@@ -138,6 +142,50 @@ class NestDataViewer {
                 }
             });
         });
+
+        // Efficiency chart controls
+        const efficiencyRerender = () => {
+            if (this.data.length > 0) {
+                this.debouncedUpdate(() => this.updateEfficiencyChart());
+            }
+        };
+
+        document.querySelectorAll('input[name="efficiencyAggregation"]').forEach(input => {
+            input.addEventListener('change', (event) => {
+                this.efficiencyAggregation = event.target.value;
+                this.saveSetting('efficiencyAggregation', event.target.value);
+                efficiencyRerender();
+            });
+        });
+
+        document.querySelectorAll('input[name="efficiencyMode"]').forEach(input => {
+            input.addEventListener('change', (event) => {
+                this.efficiencyMode = event.target.value;
+                this.saveSetting('efficiencyMode', event.target.value);
+                efficiencyRerender();
+            });
+        });
+
+        document.querySelectorAll('input[name="efficiencyNormalization"]').forEach(input => {
+            input.addEventListener('change', (event) => {
+                this.efficiencyNormalization = event.target.value;
+                this.saveSetting('efficiencyNormalization', event.target.value);
+                efficiencyRerender();
+            });
+        });
+
+        const efficiencyBaseInput = document.getElementById('efficiencyBaseTemp');
+        if (efficiencyBaseInput) {
+            efficiencyBaseInput.addEventListener('change', (event) => {
+                const value = Number(event.target.value);
+                if (Number.isFinite(value)) {
+                    // Stored canonically in °F; convert if the UI is showing °C.
+                    this.efficiencyBaseTempF = this.temperatureUnit === 'F' ? value : (value * 9 / 5) + 32;
+                    this.saveSetting('efficiencyBaseTempF', this.efficiencyBaseTempF);
+                    efficiencyRerender();
+                }
+            });
+        }
 
         // Hot temperature threshold listeners with debouncing
         document.getElementById('enableHotThreshold').addEventListener('change', (event) => {
@@ -998,6 +1046,10 @@ class NestDataViewer {
                 this.updateCorrelationChartWithData(data, aggregationType);
                 break;
                 
+            case 'efficiencyAggregated':
+                this.updateEfficiencyChartWithData(data, aggregationType);
+                break;
+                
             case 'error':
                 console.error('Worker error:', error);
                 this.showError(`Error processing data: ${error}`);
@@ -1228,6 +1280,41 @@ class NestDataViewer {
             const el = document.querySelector(`input[name="uploadMode"][value="${this.uploadMode}"]`);
             if (el) el.checked = true;
         }
+
+        if (typeof s.efficiencyAggregation === 'string') {
+            this.efficiencyAggregation = s.efficiencyAggregation;
+            const el = document.querySelector(`input[name="efficiencyAggregation"][value="${s.efficiencyAggregation}"]`);
+            if (el) el.checked = true;
+        }
+
+        if (typeof s.efficiencyMode === 'string') {
+            this.efficiencyMode = s.efficiencyMode;
+            const el = document.querySelector(`input[name="efficiencyMode"][value="${s.efficiencyMode}"]`);
+            if (el) el.checked = true;
+        }
+
+        if (typeof s.efficiencyNormalization === 'string') {
+            this.efficiencyNormalization = s.efficiencyNormalization;
+            const el = document.querySelector(`input[name="efficiencyNormalization"][value="${s.efficiencyNormalization}"]`);
+            if (el) el.checked = true;
+        }
+
+        if (typeof s.efficiencyBaseTempF === 'number' && Number.isFinite(s.efficiencyBaseTempF)) {
+            this.efficiencyBaseTempF = s.efficiencyBaseTempF;
+        }
+        this.updateEfficiencyBaseInput();
+    }
+
+    // Reflect the canonical °F base temp into the input using the active unit.
+    updateEfficiencyBaseInput() {
+        const el = document.getElementById('efficiencyBaseTemp');
+        if (!el) return;
+        const display = this.temperatureUnit === 'F'
+            ? this.efficiencyBaseTempF
+            : (this.efficiencyBaseTempF - 32) * 5 / 9;
+        el.value = Math.round(display * 10) / 10;
+        const unitLabel = document.getElementById('efficiencyBaseUnit');
+        if (unitLabel) unitLabel.textContent = this.temperatureUnit === 'F' ? '°F' : '°C';
     }
 
     async persistCurrentData() {
@@ -1928,6 +2015,7 @@ class NestDataViewer {
         this.createHumidityChart(dataToUse);
         this.createRuntimeChart(dataToUse);
         this.createCorrelationChart(dataToUse);
+        this.createEfficiencyChart();
     }
 
     createChartsProgressively() {
@@ -1939,7 +2027,8 @@ class NestDataViewer {
             { name: 'Target Chart', method: () => this.createTargetChart(dataToUse) },
             { name: 'Humidity Chart', method: () => this.createHumidityChart(dataToUse) },
             { name: 'Runtime Chart', method: () => this.createRuntimeChart(dataToUse) },
-            { name: 'Correlation Chart', method: () => this.createCorrelationChart(dataToUse) }
+            { name: 'Correlation Chart', method: () => this.createCorrelationChart(dataToUse) },
+            { name: 'Efficiency Chart', method: () => this.createEfficiencyChart() }
         ];
         
         let currentChart = 0;
@@ -2513,6 +2602,250 @@ class NestDataViewer {
         });
     }
 
+    // ===== HVAC Efficiency (weather-normalized runtime) =====
+
+    getEfficiencyBaseTempC() {
+        const f = Number(this.efficiencyBaseTempF);
+        const base = Number.isFinite(f) ? f : 65;
+        return (base - 32) * 5 / 9;
+    }
+
+    getEfficiencyRawData() {
+        return this.filteredData.length > 0 ? this.filteredData : this.data;
+    }
+
+    // Local mirror of DataProcessor.aggregateEfficiencyData for small/no-worker paths.
+    aggregateEfficiencyLocal(rawData, aggregationType, baseTempC) {
+        const buckets = new Map();
+        const bucketKey = (date) => {
+            const d = new Date(date);
+            switch (aggregationType) {
+                case 'hourly':
+                    d.setMinutes(0, 0, 0);
+                    return d.getTime();
+                case 'weekly': {
+                    d.setDate(d.getDate() - d.getDay());
+                    d.setHours(0, 0, 0, 0);
+                    return d.getTime();
+                }
+                case 'daily':
+                default:
+                    d.setHours(0, 0, 0, 0);
+                    return d.getTime();
+            }
+        };
+
+        for (const record of rawData) {
+            if (!record) continue;
+            const rawOutdoor = record.outdoor_temp;
+            if (rawOutdoor == null || rawOutdoor === '') continue;
+            const outdoor = Number(rawOutdoor);
+            if (!Number.isFinite(outdoor)) continue;
+            const start = record.timestamp ? new Date(record.timestamp) : new Date(record.interval_start);
+            if (Number.isNaN(start.getTime())) continue;
+
+            let intervalHours = 0.25;
+            if (record.interval_end && record.interval_start) {
+                const diffH = (new Date(record.interval_end).getTime() - new Date(record.interval_start).getTime()) / 3600000;
+                if (Number.isFinite(diffH) && diffH > 0 && diffH <= 24) intervalHours = diffH;
+            }
+            const dayFraction = intervalHours / 24;
+            const coolingHours = Math.max(0, Number(record.cooling_time) || 0) / 3600;
+            const heatingHours = Math.max(0, Number(record.heating_time) || 0) / 3600;
+            const cdd = Math.max(outdoor - baseTempC, 0) * dayFraction;
+            const hdd = Math.max(baseTempC - outdoor, 0) * dayFraction;
+
+            const key = bucketKey(start);
+            if (!buckets.has(key)) {
+                buckets.set(key, { x: new Date(key), coolingHours: 0, heatingHours: 0, cdd: 0, hdd: 0, count: 0 });
+            }
+            const b = buckets.get(key);
+            b.coolingHours += coolingHours;
+            b.heatingHours += heatingHours;
+            b.cdd += cdd;
+            b.hdd += hdd;
+            b.count++;
+        }
+        return Array.from(buckets.values()).sort((a, b) => a.x - b.x);
+    }
+
+    // Minimum degree-days a bucket must have before its ratio is meaningful.
+    getEfficiencyMinDegreeDays() {
+        switch (this.efficiencyAggregation) {
+            case '15min': return 0.1;
+            case 'hourly': return 0.25;
+            case 'weekly': return 3;
+            case 'daily':
+            default: return 1;
+        }
+    }
+
+    // Pick the mode + ratio (runtime hours per degree-day) for a bucket.
+    selectEfficiencyRatio(bucket) {
+        const minDD = this.getEfficiencyMinDegreeDays();
+        const cooling = bucket.cdd >= minDD ? { mode: 'cooling', ratio: bucket.coolingHours / bucket.cdd, runtimeHours: bucket.coolingHours, degreeDays: bucket.cdd } : null;
+        const heating = bucket.hdd >= minDD ? { mode: 'heating', ratio: bucket.heatingHours / bucket.hdd, runtimeHours: bucket.heatingHours, degreeDays: bucket.hdd } : null;
+
+        if (this.efficiencyMode === 'cooling') return cooling;
+        if (this.efficiencyMode === 'heating') return heating;
+        // Auto: whichever mode actually ran more during the bucket.
+        if (cooling && heating) return bucket.coolingHours >= bucket.heatingHours ? cooling : heating;
+        return cooling || heating;
+    }
+
+    percentile(sortedValues, p) {
+        if (!sortedValues.length) return null;
+        const idx = (sortedValues.length - 1) * p;
+        const lo = Math.floor(idx);
+        const hi = Math.ceil(idx);
+        if (lo === hi) return sortedValues[lo];
+        return sortedValues[lo] + (sortedValues[hi] - sortedValues[lo]) * (idx - lo);
+    }
+
+    // Convert per-bucket ratios into 0–100 scores (higher = more efficient).
+    computeEfficiencyScores(buckets) {
+        const points = [];
+        for (const bucket of buckets) {
+            const selected = this.selectEfficiencyRatio(bucket);
+            if (!selected || !Number.isFinite(selected.ratio)) continue;
+            points.push({ x: bucket.x, ...selected });
+        }
+        if (!points.length) return [];
+
+        let bestRatio;
+        let worstRatio;
+        if (this.efficiencyNormalization === 'fixed') {
+            // Estimated absolute anchors (runtime hours per °C·degree-day).
+            // Documented as an estimate; comparable over time and across homes.
+            bestRatio = 0.15;
+            worstRatio = 1.2;
+        } else {
+            const ratios = points.map(p => p.ratio).sort((a, b) => a - b);
+            bestRatio = this.percentile(ratios, 0.10);
+            worstRatio = this.percentile(ratios, 0.90);
+            if (bestRatio === worstRatio) {
+                // Degenerate spread (e.g. one bucket) — show a neutral score.
+                return points.map(p => ({ ...p, score: 100 }));
+            }
+        }
+
+        const span = worstRatio - bestRatio;
+        return points.map(p => {
+            let score = span > 0 ? (100 * (worstRatio - p.ratio) / span) : 100;
+            score = Math.max(0, Math.min(100, score));
+            return { ...p, score: Math.round(score) };
+        });
+    }
+
+    createEfficiencyChart() {
+        const rawData = this.getEfficiencyRawData();
+        const baseTempC = this.getEfficiencyBaseTempC();
+
+        if (this.dataWorker && rawData.length > 1000) {
+            this.dataWorker.postMessage({
+                type: 'aggregateEfficiency',
+                data: {
+                    efficiencyRawData: rawData,
+                    aggregationType: this.efficiencyAggregation,
+                    baseTempC: baseTempC
+                }
+            });
+        } else {
+            const buckets = this.aggregateEfficiencyLocal(rawData, this.efficiencyAggregation, baseTempC);
+            this.updateEfficiencyChartWithData(buckets, this.efficiencyAggregation);
+        }
+    }
+
+    updateEfficiencyChart() {
+        this.createEfficiencyChart();
+    }
+
+    updateEfficiencyChartWithData(buckets, aggregationType) {
+        const canvas = document.getElementById('efficiencyChart');
+        if (!canvas) return;
+
+        const scored = this.computeEfficiencyScores(buckets);
+        this.updateEfficiencyEmptyState(scored.length === 0);
+
+        const unitSymbol = this.temperatureUnit === 'F' ? '°F' : '°C';
+        // Degree-days are computed in °C internally; scale for display in °F.
+        const ddScale = this.temperatureUnit === 'F' ? 9 / 5 : 1;
+        const coolingColor = '#45b7d1';
+        const heatingColor = '#f39c12';
+
+        const pointData = scored.map(p => ({ x: p.x, y: p.score }));
+        const pointColors = scored.map(p => p.mode === 'heating' ? heatingColor : coolingColor);
+
+        if (this.charts.efficiency) {
+            this.charts.efficiency.destroy();
+        }
+
+        const self = this;
+        this.charts.efficiency = new Chart(canvas, {
+            type: 'line',
+            data: {
+                datasets: [{
+                    label: 'Efficiency Score (0–100, higher is better)',
+                    data: pointData,
+                    parsing: false,
+                    borderColor: '#667eea',
+                    backgroundColor: 'rgba(102, 126, 234, 0.15)',
+                    borderWidth: 2,
+                    pointRadius: 4,
+                    pointHoverRadius: 6,
+                    pointBackgroundColor: pointColors,
+                    pointBorderColor: pointColors,
+                    tension: 0.25,
+                    spanGaps: true,
+                    fill: true
+                }]
+            },
+            options: {
+                ...this.getCommonChartOptions('Efficiency Score'),
+                scales: {
+                    ...this.getCommonChartOptions('Efficiency Score').scales,
+                    y: {
+                        ...this.getCommonChartOptions('Efficiency Score').scales.y,
+                        beginAtZero: true,
+                        min: 0,
+                        max: 100,
+                        title: { display: true, text: 'Efficiency Score (0–100)', font: { size: 12, weight: 'bold' } }
+                    }
+                },
+                plugins: {
+                    ...this.getCommonChartOptions('Efficiency Score').plugins,
+                    tooltip: {
+                        ...this.getCommonChartOptions('Efficiency Score').plugins.tooltip,
+                        callbacks: {
+                            title: function(items) {
+                                const d = new Date(items[0].parsed.x);
+                                return d.toLocaleDateString();
+                            },
+                            label: function(item) {
+                                const p = scored[item.dataIndex];
+                                if (!p) return '';
+                                const ratioDisplay = (p.ratio / ddScale).toFixed(2);
+                                const ddDisplay = (p.degreeDays * ddScale).toFixed(1);
+                                return [
+                                    `Score: ${p.score}/100`,
+                                    `Mode: ${p.mode === 'heating' ? 'Heating' : 'Cooling'}`,
+                                    `Runtime: ${p.runtimeHours.toFixed(2)} h`,
+                                    `Ratio: ${ratioDisplay} runtime h / ${unitSymbol}-degree-day (lower is better)`,
+                                    `Degree-days: ${ddDisplay} ${unitSymbol}-days`
+                                ];
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    updateEfficiencyEmptyState(isEmpty) {
+        const note = document.getElementById('efficiencyEmpty');
+        if (note) note.style.display = isEmpty ? 'block' : 'none';
+    }
+
     recreateChartsWithNewUnits() {
         // When temperature unit changes, we need to regenerate time series data
         if (this.dataWorker && this.data.length > 0) {
@@ -2733,6 +3066,7 @@ class NestDataViewer {
                 thresholdInput.dataset.unit = 'F';
             }
         }
+        this.updateEfficiencyBaseInput();
     }
 
     getCommonChartOptions(yAxisLabel) {
