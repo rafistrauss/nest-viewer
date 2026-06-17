@@ -11,7 +11,8 @@ class NestDataViewer {
         this.dataWorker = null;
         this.updateTimeout = null; // For debouncing
         this.parseStats = null; // Track parsing statistics
-        this.aiService = window.NestAI?.AIService ? new window.NestAI.AIService() : null;
+        const nestAI = globalThis.NestAI;
+        this.aiService = nestAI?.AIService ? new nestAI.AIService() : null;
         this.aiRequestController = null;
         this.aiRequestInFlight = false;
         this.aiKeyVisible = false;
@@ -371,7 +372,7 @@ class NestDataViewer {
     }
 
     getBreakdownLabelForSpanDays(spanDays) {
-        const helper = window.NestAI?.getBreakdownGranularityForSpanDays;
+        const helper = globalThis.NestAI?.getBreakdownGranularityForSpanDays;
         const granularity = helper ? helper(spanDays) : (spanDays <= 31 ? 'daily' : (spanDays <= 420 ? 'weekly' : 'monthly'));
         if (granularity === 'daily') return 'daily';
         if (granularity === 'weekly') return 'weekly';
@@ -487,11 +488,11 @@ class NestDataViewer {
 
         // Pull out any structured anomalies the AI appended so we can both
         // render clean markdown and annotate the charts.
-        const parser = window.NestAI && window.NestAI.parseAIAnalysis;
+        const parser = globalThis.NestAI?.parseAIAnalysis;
         const parsed = parser ? parser(text) : { markdown: text, anomalies: [] };
         const markdown = parsed.markdown;
 
-        const renderer = window.NestAI && window.NestAI.renderMarkdown;
+        const renderer = globalThis.NestAI?.renderMarkdown;
         rendered.innerHTML = renderer ? renderer(markdown) : '';
         if (!renderer) {
             rendered.textContent = markdown;
@@ -803,7 +804,13 @@ class NestDataViewer {
         }
 
         const recordsForAnalysis = this.getRecordsInDisplayUnit(analysisWindow.recordsForAnalysis);
-        const summary = window.NestAI.summarizeHVACData(recordsForAnalysis, analysisWindow.analysisPeriodDays, {
+        const summarizeHVACData = globalThis.NestAI?.summarizeHVACData;
+        if (!summarizeHVACData) {
+            this.setAIStatus('AI HVAC summarizer is not loaded. Refresh the page and try again.', 'error');
+            return;
+        }
+
+        const summary = summarizeHVACData(recordsForAnalysis, analysisWindow.analysisPeriodDays, {
             temperatureUnit: this.getTemperatureUnitLabel()
         });
 
