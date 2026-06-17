@@ -83,6 +83,7 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
     <style>
         * {
             margin: 0;
@@ -353,6 +354,21 @@
         }
 
         .error.show {
+            display: block;
+        }
+
+        .upload-notice {
+            display: none;
+            background: #eef6ff;
+            color: #1f4b7a;
+            padding: 12px 15px;
+            border-radius: 10px;
+            margin: 14px 0;
+            border: 1px solid #d6e8ff;
+            font-size: 0.92rem;
+        }
+
+        .upload-notice.show {
             display: block;
         }
 
@@ -687,20 +703,27 @@
 
         /* Help Button Styles */
         .help-button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            vertical-align: middle;
+            width: 32px;
+            height: 32px;
+            line-height: 1;
             background: none;
             border: none;
             font-size: 1.2rem;
             cursor: pointer;
             margin-left: 10px;
-            padding: 5px 8px;
+            padding: 0;
             border-radius: 50%;
-            transition: all 0.3s ease;
+            transition: background 0.2s ease, color 0.2s ease;
             color: #667eea;
         }
 
         .help-button:hover {
-            background: rgba(102, 126, 234, 0.1);
-            transform: scale(1.1);
+            background: rgba(102, 126, 234, 0.15);
+            color: #4c5fd5;
         }
 
         /* Modal Styles */
@@ -1056,7 +1079,9 @@
             .help-button {
                 font-size: 1rem;
                 margin-left: 5px;
-                padding: 3px 6px;
+                width: 28px;
+                height: 28px;
+                padding: 0;
             }
 
             .error {
@@ -1296,11 +1321,24 @@
             <div id="uploadSummary" class="upload-summary" style="display: none;"></div>
             <div id="uploadSectionBody">
             <div class="file-input-wrapper" id="dropZone">
-                <input type="file" id="fileInput" class="file-input" accept=".jsonl,.json" />
+                <input type="file" id="fileInput" class="file-input" accept=".jsonl,.json,.zip" />
+                <input type="file" id="folderInput" class="file-input" webkitdirectory directory multiple />
                 <label for="fileInput" class="file-input-label">
-                    📁 Choose JSONL File
+                    📁 Choose File (.jsonl or .zip)
                 </label>
-                <div class="drag-drop-text">or drag and drop your file here</div>
+                <label for="folderInput" class="file-input-label" style="margin-left: 8px;">
+                    📂 Choose Folder
+                </label>
+                <div class="drag-drop-text">or drag and drop a file, folder, or Google Takeout zip</div>
+            </div>
+            <div class="unit-toggle">
+                <label class="toggle-label">When uploading new data:</label>
+                <div class="toggle-switch">
+                    <input type="radio" id="uploadModeReplace" name="uploadMode" value="replace" checked>
+                    <label for="uploadModeReplace">Replace existing data</label>
+                    <input type="radio" id="uploadModeMerge" name="uploadMode" value="merge">
+                    <label for="uploadModeMerge">Merge and dedupe</label>
+                </div>
             </div>
             <div style="margin: 20px 0;">
                 <button id="loadSampleData" class="sample-btn">
@@ -1309,8 +1347,12 @@
                 <button id="clearSavedData" class="sample-btn" type="button" style="display: none; margin-left: 8px;">
                     🗑️ Forget Saved Data
                 </button>
+                <button id="downloadData" class="sample-btn" type="button" style="display: none; margin-left: 8px;">
+                    ⬇️ Download Data (.jsonl)
+                </button>
             </div>
-            <p class="info-text">Select your exported Nest HVAC runtime data file (.jsonl format) or try the sample data</p>
+            <p class="info-text">Upload a Nest HVAC `.jsonl` file, the containing folder, or a Google Takeout `.zip` archive.</p>
+            <div id="uploadNotice" class="upload-notice"></div>
             
             <div class="unit-toggle">
                 <label class="toggle-label">Temperature Unit:</label>
@@ -1519,6 +1561,7 @@
                 <div id="aiOutputToolbar" style="display: none; justify-content: flex-end; margin-bottom: 8px;">
                     <button id="toggleAIRaw" class="filter-btn" type="button">View raw response</button>
                 </div>
+                <div id="aiAnalysisMeta" style="display: none; color: #6b7280; font-size: 0.85rem; margin-bottom: 8px;"></div>
                 <div id="aiOutput" class="ai-output">AI output will appear here.</div>
                 <pre id="aiOutputRaw" class="ai-output-raw" style="display: none;"></pre>
             </div>
@@ -1571,7 +1614,7 @@
 
                 <div class="step">
                     <h3>Step 6: Upload Here</h3>
-                    <p>Upload the JSONL file using the file picker above. The tool will automatically parse and visualize your HVAC runtime data!</p>
+                    <p>Upload the JSONL file, the containing folder, or the original Google Takeout zip archive. The tool will automatically parse and visualize your HVAC runtime data.</p>
                 </div>
 
                 <div class="note">
