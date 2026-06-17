@@ -5,6 +5,8 @@ const url = require('url');
 
 const PORT = 3000;
 
+const DEBUG = process.argv.includes('--debug') || process.env.NEST_DEBUG === '1' || process.env.NEST_DEBUG === 'true';
+
 const mimeTypes = {
     '.html': 'text/html',
     '.js': 'application/javascript',
@@ -36,11 +38,23 @@ const server = http.createServer((req, res) => {
                 res.end('Internal server error');
             }
         } else {
+            let body = data;
+
+            // In debug mode, expose a global flag so the client logs the exact
+            // prompt and summarized data to the browser console before sending.
+            if (DEBUG && ext === '.html') {
+                const html = data.toString('utf8');
+                const injection = '<script>window.NEST_DEBUG = true;</script>';
+                body = html.includes('</head>')
+                    ? html.replace('</head>', `${injection}\n</head>`)
+                    : `${injection}\n${html}`;
+            }
+
             res.writeHead(200, { 
                 'Content-Type': mimeType,
                 'Access-Control-Allow-Origin': '*'
             });
-            res.end(data);
+            res.end(body);
         }
     });
 });
@@ -48,6 +62,9 @@ const server = http.createServer((req, res) => {
 server.listen(PORT, () => {
     console.log(`🚀 Nest Data Viewer server running at http://localhost:${PORT}`);
     console.log('📁 Place your JSONL file in this directory and upload it via the web interface');
+    if (DEBUG) {
+        console.log('🐞 Debug mode ON — AI prompts/data will be logged to the browser console before each request');
+    }
 });
 
 // Set max listeners to avoid warning

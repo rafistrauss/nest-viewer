@@ -11,8 +11,26 @@ class NestDataViewer {
         this.dataWorker = null;
         this.updateTimeout = null; // For debouncing
         this.parseStats = null; // Track parsing statistics
+        const nestAI = globalThis.NestAI;
+        this.aiService = nestAI?.AIService ? new nestAI.AIService() : null;
+        this.aiRequestController = null;
+        this.aiRequestInFlight = false;
+        this.aiKeyVisible = false;
+        this.hvacAnalysisRange = '30d';
+        this.showCoolingTarget = false;
+        this.showHeatingTarget = false;
+        this.aiAnomalies = [];
+        this.uploadCollapsed = false;
+        this.storageKey = 'nestViewer.uploadedData.v1';
+        this.settingsKey = 'nestViewer.settings.v1';
+        this.pendingPersist = null;
+        this.restoringFromStorage = false;
+        this.settings = this.loadSettings();
+        this.applyLoadedSettings();
         this.initializeEventListeners();
         this.initializeWorker();
+        this.initializeAISection();
+        this.restorePersistedData();
     }
 
     initializeEventListeners() {
@@ -32,6 +50,7 @@ class NestDataViewer {
                         this.updateStats();
                         // When temperature unit changes, we need to recreate all charts
                         this.recreateChartsWithNewUnits();
+                        this.updateAIDataPreview();
                     });
                 }
             });
@@ -50,6 +69,22 @@ class NestDataViewer {
             this.resetAllChartsZoom();
         });
 
+        document.getElementById('showCoolingTarget').addEventListener('change', (event) => {
+            this.showCoolingTarget = event.target.checked;
+            this.saveSetting('showCoolingTarget', event.target.checked);
+            if (this.charts.temperature) {
+                this.updateTemperatureChart();
+            }
+        });
+
+        document.getElementById('showHeatingTarget').addEventListener('change', (event) => {
+            this.showHeatingTarget = event.target.checked;
+            this.saveSetting('showHeatingTarget', event.target.checked);
+            if (this.charts.temperature) {
+                this.updateTemperatureChart();
+            }
+        });
+
         // Quick filter listeners
         document.querySelectorAll('.quick-filter').forEach(button => {
             button.addEventListener('click', (event) => {
@@ -63,6 +98,7 @@ class NestDataViewer {
         runtimeAggInputs.forEach(input => {
             input.addEventListener('change', (event) => {
                 this.runtimeAggregation = event.target.value;
+                this.saveSetting('runtimeAggregation', event.target.value);
                 if (this.data.length > 0) {
                     this.debouncedUpdate(() => {
                         this.updateRuntimeChart();
@@ -76,6 +112,7 @@ class NestDataViewer {
         correlationAggInputs.forEach(input => {
             input.addEventListener('change', (event) => {
                 this.correlationAggregation = event.target.value;
+                this.saveSetting('correlationAggregation', event.target.value);
                 if (this.data.length > 0) {
                     this.debouncedUpdate(() => {
                         this.updateCorrelationChart();
@@ -132,6 +169,47 @@ class NestDataViewer {
         document.getElementById('loadSampleData').addEventListener('click', () => {
             this.loadSampleData();
         });
+
+        document.getElementById('clearSavedData').addEventListener('click', () => {
+            this.clearPersistedData();
+        });
+
+        document.getElementById('saveApiKey').addEventListener('click', () => {
+            this.saveGeminiApiKey();
+        });
+
+        document.getElementById('removeApiKey').addEventListener('click', () => {
+            this.removeGeminiApiKey();
+        });
+
+        document.getElementById('toggleApiKeyVisibility').addEventListener('click', () => {
+            this.toggleApiKeyVisibility();
+        });
+
+        document.getElementById('analyzeHVACWithAI').addEventListener('click', () => {
+            this.analyzeHVACPerformance();
+        });
+
+        const hvacAnalysisRange = document.getElementById('hvacAnalysisRange');
+        if (hvacAnalysisRange) {
+            hvacAnalysisRange.addEventListener('change', (event) => {
+                this.hvacAnalysisRange = event.target.value || '30d';
+                this.saveSetting('hvacAnalysisRange', this.hvacAnalysisRange);
+                this.updateAIDataPreview();
+            });
+        }
+
+        document.getElementById('cancelAIRequest').addEventListener('click', () => {
+            this.cancelAIRequest();
+        });
+
+        document.getElementById('toggleAIRaw').addEventListener('click', () => {
+            this.toggleAIRaw();
+        });
+
+        document.getElementById('toggleUploadSection').addEventListener('click', () => {
+            this.setUploadCollapsed(!this.uploadCollapsed);
+        });
     }
 
     initializeWorker() {
@@ -149,6 +227,583 @@ class NestDataViewer {
         }
     }
 
+    initializeAISection() {
+        this.updateApiKeyUI();
+        this.updateAIDataPreview();
+        this.updateAIActionState();
+    }
+
+    getDataForAnalysis() {
+        // filteredData is the current active selection; if it's empty, treat that as
+        // "no data" (e.g. an empty date-range filter) rather than falling back.
+        return Array.isArray(this.filteredData) ? this.filteredData : this.data;
+    }
+
+    updateApiKeyUI(message = '') {
+        const keyInput = document.getElementById('geminiApiKey');
+        const statusElement = document.getElementById('apiKeyStatus');
+        const hasKey = this.aiService?.hasApiKey();
+        const redactKey = this.aiService?.getRedactedApiKey() || '';
+
+        keyInput.value = '';
+        keyInput.placeholder = hasKey ? `Saved (${redactKey})` : 'Paste your Gemini API key';
+        statusElement.textContent = message || (hasKey ? 'Gemini API key is saved in local browser storage.' : 'No API key configured.');
+        statusElement.style.color = hasKey ? '#0a7f3f' : '#666';
+    }
+
+    toggleApiKeyVisibility() {
+        const keyInput = document.getElementById('geminiApiKey');
+        const toggleButton = document.getElementById('toggleApiKeyVisibility');
+        this.aiKeyVisible = !this.aiKeyVisible;
+        keyInput.type = this.aiKeyVisible ? 'text' : 'password';
+        toggleButton.textContent = this.aiKeyVisible ? 'Hide' : 'Show';
+    }
+
+    saveGeminiApiKey() {
+        if (!this.aiService) return;
+        const keyInput = document.getElementById('geminiApiKey');
+        const candidateKey = (keyInput.value || '').trim();
+
+        if (candidateKey.length < 20) {
+            this.updateApiKeyUI('Please enter a valid Gemini API key.');
+            document.getElementById('apiKeyStatus').style.color = '#c0392b';
+            return;
+        }
+
+        try {
+            this.aiService.saveApiKey(candidateKey);
+            this.aiService.clearCache();
+            this.updateApiKeyUI('Gemini API key saved locally in this browser.');
+            this.updateAIActionState();
+        } catch (error) {
+            this.updateApiKeyUI(error.message || 'Unable to save API key.');
+            document.getElementById('apiKeyStatus').style.color = '#c0392b';
+        }
+    }
+
+    removeGeminiApiKey() {
+        if (!this.aiService) return;
+        this.aiService.removeApiKey();
+        this.aiService.clearCache();
+        this.updateApiKeyUI('Gemini API key removed from browser storage.');
+        document.getElementById('apiKeyStatus').style.color = '#666';
+        this.updateAIActionState();
+    }
+
+    getRecordsInDisplayUnit(records) {
+        // Raw Nest records store temperatures in Celsius. Convert the temperature
+        // fields to the user's selected display unit so the AI summary matches
+        // what is shown on the charts and is explicitly labeled.
+        if (this.temperatureUnit !== 'F') {
+            return records;
+        }
+        const tempFields = ['indoor_temp', 'outdoor_temp', 'cooling_target', 'heating_target'];
+        return records.map(record => {
+            const converted = { ...record };
+            tempFields.forEach(field => {
+                const value = Number(record[field]);
+                if (Number.isFinite(value)) {
+                    converted[field] = this.celsiusToFahrenheit(value);
+                }
+            });
+            return converted;
+        });
+    }
+
+    getHVACAnalysisRangeDays() {
+        if (this.hvacAnalysisRange === 'all') return null;
+        const value = Number.parseInt((this.hvacAnalysisRange || '').replace('d', ''), 10);
+        return Number.isFinite(value) && value > 0 ? value : 30;
+    }
+
+    getHVACAnalysisWindow() {
+        const records = this.getDataForAnalysis();
+        if (!records.length) return null;
+
+        const dataStart = new Date(records[0].timestamp);
+        const dataEnd = new Date(records[records.length - 1].timestamp);
+        const rangeDays = this.getHVACAnalysisRangeDays();
+        const analysisStartMs = rangeDays == null
+            ? dataStart.getTime()
+            : Math.max(dataStart.getTime(), dataEnd.getTime() - (rangeDays * 24 * 60 * 60 * 1000));
+
+        const analysisStart = new Date(analysisStartMs);
+        const analysisEnd = dataEnd;
+        const truncated = analysisStartMs > dataStart.getTime();
+        const recordsForAnalysis = records.filter(record => {
+            const time = new Date(record.timestamp).getTime();
+            return Number.isFinite(time) && time >= analysisStartMs;
+        });
+
+        const spanDays = Math.max(1, Math.ceil((analysisEnd.getTime() - analysisStart.getTime()) / 86400000));
+        return {
+            dataStart,
+            dataEnd,
+            analysisStart,
+            analysisEnd,
+            truncated,
+            analyzedCount: recordsForAnalysis.length,
+            analysisPeriodDays: spanDays,
+            recordsForAnalysis
+        };
+    }
+
+    getBreakdownLabelForSpanDays(spanDays) {
+        const helper = globalThis.NestAI?.getBreakdownGranularityForSpanDays;
+        const granularity = helper ? helper(spanDays) : (spanDays <= 31 ? 'daily' : (spanDays <= 420 ? 'weekly' : 'monthly'));
+        if (granularity === 'daily') return 'daily';
+        if (granularity === 'weekly') return 'weekly';
+        if (granularity === 'monthly') return 'monthly';
+        return 'quarterly';
+    }
+
+    formatAnalysisDate(date) {
+        return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+    }
+
+    updateHVACAnalysisInfo() {
+        const info = document.getElementById('hvacAnalysisInfo');
+        if (!info) return;
+
+        const analysisWindow = this.getHVACAnalysisWindow();
+        if (!analysisWindow) {
+            info.textContent = 'Upload data to analyze HVAC performance.';
+            return;
+        }
+
+        const startDate = `<span class="analysis-date">${this.escapeHtml(this.formatAnalysisDate(analysisWindow.analysisStart))}</span>`;
+        const endDate = `<span class="analysis-date">${this.escapeHtml(this.formatAnalysisDate(analysisWindow.analysisEnd))}</span>`;
+        const rangeText = `${startDate} – ${endDate}`;
+        const breakdownLabel = this.getBreakdownLabelForSpanDays(analysisWindow.analysisPeriodDays);
+        const detail = analysisWindow.truncated
+            ? `Analyzes the most recent ${this.getHVACAnalysisRangeDays()} days of the selected data (${rangeText}).`
+            : `Analyzes the selected data (${rangeText}).`;
+        info.innerHTML = `📊 ${detail} ${analysisWindow.analyzedCount.toLocaleString()} records, summarized ${breakdownLabel}.`;
+    }
+
+    escapeHtml(text) {
+        return String(text)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    updateAIDataPreview() {
+        const preview = document.getElementById('aiDataPreview');
+        const records = this.getDataForAnalysis();
+
+        this.updateHVACAnalysisInfo();
+
+        const analysisWindow = this.getHVACAnalysisWindow();
+        preview.textContent = records.length && analysisWindow
+            ? [
+                `- ${analysisWindow.analyzedCount.toLocaleString()} records from ${this.formatAnalysisDate(analysisWindow.analysisStart)} to ${this.formatAnalysisDate(analysisWindow.analysisEnd)}${analysisWindow.truncated ? ` (most recent ${this.getHVACAnalysisRangeDays()} days)` : ''}`,
+                `- Temperatures in ${this.getTemperatureUnitLabel()}`,
+                `- ${this.getBreakdownLabelForSpanDays(analysisWindow.analysisPeriodDays)} period breakdown of runtime and outdoor temperature`,
+                '- Cooling & heating cycle metrics',
+                '- Temperature performance and setpoint metrics'
+            ].join('\n')
+            : '- No dataset selected';
+    }
+
+    getTemperatureUnitLabel() {
+        return this.temperatureUnit === 'F' ? 'Fahrenheit (°F)' : 'Celsius (°C)';
+    }
+
+    updateAIActionState(isLoading = false) {
+        const hasData = this.getDataForAnalysis().length > 0;
+        const hasKey = this.aiService?.hasApiKey();
+
+        document.getElementById('analyzeHVACWithAI').disabled = !hasData || !hasKey || isLoading;
+        document.getElementById('cancelAIRequest').style.display = isLoading ? 'inline-block' : 'none';
+
+        // Surface the most relevant prerequisite hint, but only while idle so we
+        // don't overwrite an in-progress spinner or a completed result.
+        if (!isLoading && !this.aiRequestInFlight) {
+            const statusElement = document.getElementById('aiStatus');
+            const showingResult = Boolean(this.aiRawOutput);
+            if (!hasKey) {
+                this.setAIStatus('Configure a Gemini API key to enable AI analysis.', 'info');
+            } else if (!hasData) {
+                this.setAIStatus('Upload data to enable AI analysis.', 'info');
+            } else if (statusElement && !showingResult && this.aiStatusType !== 'error') {
+                // Prerequisites met and nothing to report yet — clear stale hints,
+                // but leave any error message from the last request visible.
+                this.setAIStatus('');
+            }
+        }
+    }
+
+    setAIStatus(message, type = 'info') {
+        const statusElement = document.getElementById('aiStatus');
+        this.aiStatusType = message ? type : null;
+        statusElement.textContent = message;
+        statusElement.style.color = type === 'error' ? '#c0392b' : (type === 'success' ? '#0a7f3f' : '#666');
+    }
+
+    setAILoading(active, message) {
+        const loading = document.getElementById('aiLoading');
+        const text = document.getElementById('aiLoadingText');
+        if (!loading) return;
+        if (text && message) text.textContent = message;
+        loading.classList.toggle('active', Boolean(active));
+        // While loading, the status line is redundant with the spinner label.
+        if (active) {
+            this.aiStatusType = null;
+            const statusElement = document.getElementById('aiStatus');
+            if (statusElement) statusElement.textContent = '';
+        }
+    }
+
+    setAIOutput(content) {
+        const rendered = document.getElementById('aiOutput');
+        const raw = document.getElementById('aiOutputRaw');
+        const toolbar = document.getElementById('aiOutputToolbar');
+        const text = content == null ? '' : String(content);
+
+        this.aiRawOutput = text;
+        raw.textContent = text;
+
+        // Pull out any structured anomalies the AI appended so we can both
+        // render clean markdown and annotate the charts.
+        const parser = globalThis.NestAI?.parseAIAnalysis;
+        const parsed = parser ? parser(text) : { markdown: text, anomalies: [] };
+        const markdown = parsed.markdown;
+
+        const renderer = globalThis.NestAI?.renderMarkdown;
+        rendered.innerHTML = renderer ? renderer(markdown) : '';
+        if (!renderer) {
+            rendered.textContent = markdown;
+        }
+
+        if (toolbar) {
+            toolbar.style.display = text ? 'flex' : 'none';
+        }
+        this.setAIRawVisible(false);
+        this.setAIAnomalies(parsed.anomalies);
+    }
+
+    setAIRawVisible(visible) {
+        this.aiRawVisible = visible;
+        const rendered = document.getElementById('aiOutput');
+        const raw = document.getElementById('aiOutputRaw');
+        const toggle = document.getElementById('toggleAIRaw');
+        if (rendered) rendered.style.display = visible ? 'none' : 'block';
+        if (raw) raw.style.display = visible ? 'block' : 'none';
+        if (toggle) toggle.textContent = visible ? 'View formatted' : 'View raw response';
+    }
+
+    toggleAIRaw() {
+        this.setAIRawVisible(!this.aiRawVisible);
+    }
+
+    setAIAnomalies(anomalies) {
+        this.aiAnomalies = Array.isArray(anomalies) ? anomalies : [];
+        this.updateAnomalyBanner();
+        // Re-render the annotated charts so markers appear/disappear.
+        if (this.charts.temperature) this.updateTemperatureChart();
+        if (this.charts.runtime) this.updateRuntimeChart();
+    }
+
+    clearAIAnomalies() {
+        this.setAIAnomalies([]);
+    }
+
+    updateAnomalyBanner() {
+        const banner = document.getElementById('anomalyBanner');
+        if (!banner) return;
+        const count = this.aiAnomalies.length;
+        if (!count) {
+            banner.style.display = 'none';
+            banner.innerHTML = '';
+            return;
+        }
+        banner.style.display = 'flex';
+        banner.innerHTML = '';
+        const label = document.createElement('span');
+        label.textContent = `📍 ${count} AI-flagged ${count === 1 ? 'range' : 'ranges'} marked on the charts below. Click a ⚠ marker for details.`;
+        const clear = document.createElement('button');
+        clear.type = 'button';
+        clear.className = 'anomaly-clear-btn';
+        clear.textContent = 'Clear markers';
+        clear.addEventListener('click', () => {
+            this.hideAnomalyPopover();
+            this.clearAIAnomalies();
+        });
+        banner.appendChild(label);
+        banner.appendChild(clear);
+    }
+
+    getAnomalySeverityColor(severity, alpha = 1) {
+        const colors = {
+            high: `rgba(231, 76, 60, ${alpha})`,
+            medium: `rgba(243, 156, 18, ${alpha})`,
+            low: `rgba(52, 152, 219, ${alpha})`
+        };
+        return colors[severity] || colors.medium;
+    }
+
+    /**
+     * Chart.js plugin that shades AI-flagged time ranges and draws a clickable
+     * ⚠ marker for each. Marker hitboxes are stored on the chart instance so
+     * the shared onClick handler can map a click to an anomaly.
+     */
+    createAnomalyMarkerPlugin() {
+        const viewer = this;
+        return {
+            id: 'aiAnomalyMarkers',
+            afterDatasetsDraw(chart) {
+                chart.$anomalyMarkers = [];
+                const anomalies = viewer.aiAnomalies;
+                if (!anomalies || !anomalies.length) return;
+
+                const xScale = chart.scales.x;
+                const area = chart.chartArea;
+                if (!xScale || !area) return;
+
+                const ctx = chart.ctx;
+                const viewMin = xScale.min;
+                const viewMax = xScale.max;
+
+                anomalies.forEach((anomaly) => {
+                    // Skip anomalies entirely outside the visible window.
+                    if (anomaly.endMs < viewMin || anomaly.startMs > viewMax) return;
+
+                    const startPx = Math.max(area.left, xScale.getPixelForValue(Math.max(anomaly.startMs, viewMin)));
+                    const endPx = Math.min(area.right, xScale.getPixelForValue(Math.min(anomaly.endMs, viewMax)));
+                    const bandLeft = Math.min(startPx, endPx);
+                    const bandRight = Math.max(startPx, endPx);
+                    const bandWidth = Math.max(bandRight - bandLeft, 2);
+
+                    ctx.save();
+                    // Shaded band over the flagged range.
+                    ctx.fillStyle = viewer.getAnomalySeverityColor(anomaly.severity, 0.12);
+                    ctx.fillRect(bandLeft, area.top, bandWidth, area.bottom - area.top);
+
+                    // Range edges.
+                    ctx.strokeStyle = viewer.getAnomalySeverityColor(anomaly.severity, 0.5);
+                    ctx.lineWidth = 1;
+                    ctx.setLineDash([4, 4]);
+                    ctx.beginPath();
+                    ctx.moveTo(bandLeft + 0.5, area.top);
+                    ctx.lineTo(bandLeft + 0.5, area.bottom);
+                    ctx.moveTo(bandRight - 0.5, area.top);
+                    ctx.lineTo(bandRight - 0.5, area.bottom);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+
+                    // Clickable marker badge at the top-center of the band.
+                    const markerX = (bandLeft + bandRight) / 2;
+                    const markerY = area.top + 12;
+                    const radius = 11;
+
+                    ctx.beginPath();
+                    ctx.arc(markerX, markerY, radius, 0, Math.PI * 2);
+                    ctx.fillStyle = viewer.getAnomalySeverityColor(anomaly.severity, 1);
+                    ctx.fill();
+                    ctx.lineWidth = 2;
+                    ctx.strokeStyle = '#ffffff';
+                    ctx.stroke();
+
+                    ctx.fillStyle = '#ffffff';
+                    ctx.font = 'bold 12px sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText('⚠', markerX, markerY + 0.5);
+                    ctx.restore();
+
+                    chart.$anomalyMarkers.push({
+                        x: markerX,
+                        y: markerY,
+                        radius: radius + 3,
+                        anomaly
+                    });
+                });
+            }
+        };
+    }
+
+    handleAnomalyClick(event, chart) {
+        const markers = chart.$anomalyMarkers;
+        if (!markers || !markers.length) return false;
+
+        const rect = chart.canvas.getBoundingClientRect();
+        const clientX = event.native ? event.native.clientX : event.clientX;
+        const clientY = event.native ? event.native.clientY : event.clientY;
+        const x = clientX - rect.left;
+        const y = clientY - rect.top;
+
+        // Pick the closest marker within its hit radius.
+        let hit = null;
+        let bestDist = Infinity;
+        markers.forEach((marker) => {
+            const dist = Math.hypot(marker.x - x, marker.y - y);
+            if (dist <= marker.radius && dist < bestDist) {
+                bestDist = dist;
+                hit = marker;
+            }
+        });
+
+        if (!hit) {
+            this.hideAnomalyPopover();
+            return false;
+        }
+
+        this.showAnomalyPopover(hit.anomaly, clientX, clientY);
+        return true;
+    }
+
+    showAnomalyPopover(anomaly, clientX, clientY) {
+        let popover = document.getElementById('anomalyPopover');
+        if (!popover) {
+            popover = document.createElement('div');
+            popover.id = 'anomalyPopover';
+            popover.className = 'anomaly-popover';
+            document.body.appendChild(popover);
+            // Dismiss when clicking elsewhere.
+            document.addEventListener('click', (e) => {
+                if (!popover.contains(e.target) && !(e.target && e.target.tagName === 'CANVAS')) {
+                    this.hideAnomalyPopover();
+                }
+            });
+        }
+
+        const start = new Date(anomaly.startMs);
+        const end = new Date(anomaly.endMs);
+        const sameInstant = anomaly.startMs === anomaly.endMs;
+        const rangeText = sameInstant
+            ? `${start.toLocaleString()}`
+            : `${start.toLocaleString()} → ${end.toLocaleString()}`;
+        const sevLabel = anomaly.severity.charAt(0).toUpperCase() + anomaly.severity.slice(1);
+
+        popover.innerHTML = '';
+        const header = document.createElement('div');
+        header.className = 'anomaly-popover-header';
+
+        const badge = document.createElement('span');
+        badge.className = 'anomaly-popover-badge';
+        badge.textContent = sevLabel;
+        badge.style.backgroundColor = this.getAnomalySeverityColor(anomaly.severity, 1);
+
+        const title = document.createElement('strong');
+        title.textContent = anomaly.title;
+
+        const close = document.createElement('button');
+        close.type = 'button';
+        close.className = 'anomaly-popover-close';
+        close.setAttribute('aria-label', 'Close');
+        close.textContent = '×';
+        close.addEventListener('click', () => this.hideAnomalyPopover());
+
+        header.appendChild(badge);
+        header.appendChild(title);
+        header.appendChild(close);
+
+        const range = document.createElement('div');
+        range.className = 'anomaly-popover-range';
+        range.textContent = rangeText;
+
+        popover.appendChild(header);
+        popover.appendChild(range);
+
+        if (anomaly.detail) {
+            const detail = document.createElement('p');
+            detail.className = 'anomaly-popover-detail';
+            detail.textContent = anomaly.detail;
+            popover.appendChild(detail);
+        }
+
+        // Position near the click, then clamp into the viewport.
+        popover.style.display = 'block';
+        popover.style.visibility = 'hidden';
+        const pw = popover.offsetWidth;
+        const ph = popover.offsetHeight;
+        let left = clientX + 14;
+        let top = clientY + 14;
+        if (left + pw > window.innerWidth - 8) left = clientX - pw - 14;
+        if (left < 8) left = 8;
+        if (top + ph > window.innerHeight - 8) top = clientY - ph - 14;
+        if (top < 8) top = 8;
+        popover.style.left = `${left + window.scrollX}px`;
+        popover.style.top = `${top + window.scrollY}px`;
+        popover.style.visibility = 'visible';
+    }
+
+    hideAnomalyPopover() {
+        const popover = document.getElementById('anomalyPopover');
+        if (popover) popover.style.display = 'none';
+    }
+
+    cancelAIRequest() {
+        if (this.aiRequestController) {
+            this.aiRequestController.abort();
+            this.setAIStatus('AI request canceled.', 'info');
+        }
+    }
+
+    async runAIRequest(requestCallback) {
+        if (!this.aiService) {
+            this.setAIStatus('AI service is unavailable in this build.', 'error');
+            return;
+        }
+
+        if (this.aiRequestInFlight) {
+            this.setAIStatus('An AI request is already running. Please wait or cancel it.', 'info');
+            return;
+        }
+
+        this.aiRequestInFlight = true;
+        this.aiRequestController = new AbortController();
+        this.updateAIActionState(true);
+        this.setAILoading(true);
+
+        try {
+            await requestCallback(this.aiRequestController.signal);
+            this.setAIStatus('AI analysis complete.', 'success');
+        } catch (error) {
+            if (error?.name === 'AbortError') {
+                this.setAIStatus('AI request canceled.', 'info');
+                return;
+            }
+            this.setAIStatus(error.message || 'AI request failed.', 'error');
+        } finally {
+            this.aiRequestInFlight = false;
+            this.aiRequestController = null;
+            this.updateAIActionState(false);
+            this.setAILoading(false);
+        }
+    }
+
+    async analyzeHVACPerformance() {
+        const analysisWindow = this.getHVACAnalysisWindow();
+        if (!analysisWindow || !analysisWindow.recordsForAnalysis.length) {
+            this.setAIStatus('Upload data before running HVAC analysis.', 'error');
+            return;
+        }
+
+        const recordsForAnalysis = this.getRecordsInDisplayUnit(analysisWindow.recordsForAnalysis);
+        const summarizeHVACData = globalThis.NestAI?.summarizeHVACData;
+        if (!summarizeHVACData) {
+            this.setAIStatus('AI HVAC summarizer is not loaded. Refresh the page and try again.', 'error');
+            return;
+        }
+
+        const summary = summarizeHVACData(recordsForAnalysis, analysisWindow.analysisPeriodDays, {
+            temperatureUnit: this.getTemperatureUnitLabel()
+        });
+
+        await this.runAIRequest(async (signal) => {
+            this.setAILoading(true, 'Analyzing HVAC performance with Gemini…');
+            const output = await this.aiService.analyzeHVAC(summary, {
+                cacheKey: `hvac:${JSON.stringify(summary)}`,
+                signal
+            });
+            this.setAIOutput(output);
+        });
+    }
+
     handleWorkerMessage(message) {
         const { type, data, progress, error, aggregationType, stats } = message;
         
@@ -163,6 +818,9 @@ class NestDataViewer {
                 this.filteredData = [...this.data];
                 this.parseStats = stats; // Store parsing statistics
                 this.showValidationWarning(); // Show warning if there were skipped lines
+                this.updateAIDataPreview();
+                this.updateAIActionState();
+                this.persistPendingData(); // Save uploaded data to localStorage
                 // Use setTimeout to allow UI to update before heavy processing
                 setTimeout(() => {
                     this.prepareChartData();
@@ -314,9 +972,176 @@ class NestDataViewer {
         }
     }
 
+    loadSettings() {
+        try {
+            const raw = localStorage.getItem(this.settingsKey);
+            if (!raw) return {};
+            const parsed = JSON.parse(raw);
+            return (parsed && typeof parsed === 'object') ? parsed : {};
+        } catch (error) {
+            console.warn('Could not load saved settings:', error);
+            return {};
+        }
+    }
+
+    saveSetting(key, value) {
+        this.settings[key] = value;
+        try {
+            localStorage.setItem(this.settingsKey, JSON.stringify(this.settings));
+        } catch (error) {
+            console.warn('Could not save settings:', error);
+        }
+    }
+
+    applyLoadedSettings() {
+        const s = this.settings || {};
+
+        if (typeof s.showCoolingTarget === 'boolean') {
+            this.showCoolingTarget = s.showCoolingTarget;
+            const el = document.getElementById('showCoolingTarget');
+            if (el) el.checked = s.showCoolingTarget;
+        }
+
+        if (typeof s.showHeatingTarget === 'boolean') {
+            this.showHeatingTarget = s.showHeatingTarget;
+            const el = document.getElementById('showHeatingTarget');
+            if (el) el.checked = s.showHeatingTarget;
+        }
+
+        if (typeof s.runtimeAggregation === 'string') {
+            this.runtimeAggregation = s.runtimeAggregation;
+            const el = document.querySelector(`input[name="runtimeAggregation"][value="${s.runtimeAggregation}"]`);
+            if (el) el.checked = true;
+        }
+
+        if (typeof s.correlationAggregation === 'string') {
+            this.correlationAggregation = s.correlationAggregation;
+            const el = document.querySelector(`input[name="correlationAggregation"][value="${s.correlationAggregation}"]`);
+            if (el) el.checked = true;
+        }
+
+        if (typeof s.hvacAnalysisRange === 'string') {
+            this.hvacAnalysisRange = s.hvacAnalysisRange;
+            const el = document.getElementById('hvacAnalysisRange');
+            if (el) el.value = s.hvacAnalysisRange;
+        }
+    }
+
+    persistPendingData() {
+        if (!this.pendingPersist || this.restoringFromStorage) {
+            // Nothing new to save, or we just restored from storage
+            this.restoringFromStorage = false;
+            this.updateClearSavedDataButton();
+            return;
+        }
+
+        const { text, fileName } = this.pendingPersist;
+        try {
+            const payload = JSON.stringify({
+                version: 1,
+                fileName: fileName || 'uploaded.jsonl',
+                savedAt: new Date().toISOString(),
+                text
+            });
+            localStorage.setItem(this.storageKey, payload);
+        } catch (error) {
+            // Most commonly a QuotaExceededError for large files
+            console.warn('Could not save uploaded data for next visit:', error);
+            try {
+                localStorage.removeItem(this.storageKey);
+            } catch (_) { /* ignore */ }
+        }
+
+        this.pendingPersist = null;
+        this.updateClearSavedDataButton();
+    }
+
+    restorePersistedData() {
+        let payload;
+        try {
+            payload = localStorage.getItem(this.storageKey);
+        } catch (error) {
+            console.warn('Could not access saved data:', error);
+            return;
+        }
+
+        if (!payload) {
+            this.updateClearSavedDataButton();
+            return;
+        }
+
+        let parsed;
+        try {
+            parsed = JSON.parse(payload);
+        } catch (error) {
+            console.warn('Saved data was corrupt and will be cleared:', error);
+            this.clearPersistedData();
+            return;
+        }
+
+        if (!parsed || typeof parsed.text !== 'string' || !parsed.text.trim()) {
+            this.clearPersistedData();
+            return;
+        }
+
+        this.updateClearSavedDataButton();
+
+        if (this.isProcessing) return;
+
+        this.restoringFromStorage = true;
+        this.showLoading(true);
+        this.hideError();
+        this.isProcessing = true;
+
+        try {
+            if (this.dataWorker) {
+                this.dataWorker.postMessage({
+                    type: 'parseJSONL',
+                    data: { text: parsed.text }
+                });
+            } else {
+                this.data = this.parseJSONL(parsed.text);
+                this.prepareChartDataFallback();
+            }
+        } catch (error) {
+            console.warn('Failed to restore saved data:', error);
+            this.restoringFromStorage = false;
+            this.isProcessing = false;
+            this.showLoading(false);
+            this.clearPersistedData();
+        }
+    }
+
+    clearPersistedData() {
+        try {
+            localStorage.removeItem(this.storageKey);
+        } catch (error) {
+            console.warn('Could not clear saved data:', error);
+        }
+        this.pendingPersist = null;
+        this.updateClearSavedDataButton();
+    }
+
+    hasPersistedData() {
+        try {
+            return !!localStorage.getItem(this.storageKey);
+        } catch (error) {
+            return false;
+        }
+    }
+
+    updateClearSavedDataButton() {
+        const button = document.getElementById('clearSavedData');
+        if (!button) return;
+        button.style.display = this.hasPersistedData() ? 'inline-block' : 'none';
+    }
+
     async loadSampleData() {
         if (this.isProcessing) return;
-        
+
+        // Sample data is not persisted to localStorage
+        this.pendingPersist = null;
+
         this.showLoading(true);
         this.hideError();
         this.isProcessing = true;
@@ -364,7 +1189,10 @@ class NestDataViewer {
             }
             
             const text = await this.readFile(file);
-            
+
+            // Stash for persistence once parsing succeeds
+            this.pendingPersist = { text, fileName: file.name };
+
             if (this.dataWorker) {
                 this.dataWorker.postMessage({
                     type: 'parseJSONL',
@@ -424,7 +1252,8 @@ class NestDataViewer {
 
         this.updateProgressStep('processing');
         this.filteredData = [...this.data];
-        
+        this.persistPendingData(); // Save uploaded data to localStorage
+
         // Prepare chart data synchronously (fallback)
         setTimeout(() => {
             this.timeSeriesData = this.data.map(d => ({
@@ -718,43 +1547,79 @@ class NestDataViewer {
         // Pre-process data to avoid mapping during chart creation
         const indoorTempData = [];
         const outdoorTempData = [];
-        
+        const coolingTargetData = [];
+        const heatingTargetData = [];
+
         for (let i = 0; i < timeSeriesData.length; i++) {
             const d = timeSeriesData[i];
             indoorTempData.push({ x: d.x, y: d.indoorTemp });
             outdoorTempData.push({ x: d.x, y: d.outdoorTemp });
+            coolingTargetData.push({ x: d.x, y: d.coolingTarget });
+            heatingTargetData.push({ x: d.x, y: d.heatingTarget });
         }
-        
+
+        const datasets = [
+            {
+                label: 'Indoor Temperature',
+                data: indoorTempData,
+                borderColor: '#ff6b6b',
+                backgroundColor: 'rgba(255, 107, 107, 0.1)',
+                borderWidth: 2,
+                fill: false,
+                tension: 0.3,
+                pointRadius: 0,
+                pointHoverRadius: 4
+            },
+            {
+                label: 'Outdoor Temperature',
+                data: outdoorTempData,
+                borderColor: '#4ecdc4',
+                backgroundColor: 'rgba(78, 205, 196, 0.1)',
+                borderWidth: 2,
+                fill: false,
+                tension: 0.3,
+                pointRadius: 0,
+                pointHoverRadius: 4
+            }
+        ];
+
+        if (this.showCoolingTarget) {
+            datasets.push({
+                label: 'Cooling Target',
+                data: coolingTargetData,
+                borderColor: '#45b7d1',
+                backgroundColor: 'rgba(69, 183, 209, 0.1)',
+                borderWidth: 2,
+                fill: false,
+                tension: 0.3,
+                borderDash: [5, 5],
+                pointRadius: 0,
+                pointHoverRadius: 4
+            });
+        }
+
+        if (this.showHeatingTarget) {
+            datasets.push({
+                label: 'Heating Target',
+                data: heatingTargetData,
+                borderColor: '#f39c12',
+                backgroundColor: 'rgba(243, 156, 18, 0.1)',
+                borderWidth: 2,
+                fill: false,
+                tension: 0.3,
+                borderDash: [5, 5],
+                pointRadius: 0,
+                pointHoverRadius: 4
+            });
+        }
+
         this.charts.temperature = new Chart(document.getElementById('temperatureChart'), {
             type: 'line',
             data: {
-                datasets: [
-                    {
-                        label: 'Indoor Temperature',
-                        data: indoorTempData,
-                        borderColor: '#ff6b6b',
-                        backgroundColor: 'rgba(255, 107, 107, 0.1)',
-                        borderWidth: 2,
-                        fill: false,
-                        tension: 0.3,
-                        pointRadius: 0,
-                        pointHoverRadius: 4
-                    },
-                    {
-                        label: 'Outdoor Temperature',
-                        data: outdoorTempData,
-                        borderColor: '#4ecdc4',
-                        backgroundColor: 'rgba(78, 205, 196, 0.1)',
-                        borderWidth: 2,
-                        fill: false,
-                        tension: 0.3,
-                        pointRadius: 0,
-                        pointHoverRadius: 4
-                    }
-                ]
+                datasets
             },
             options: this.getCommonChartOptions(`Temperature (${this.temperatureUnit === 'F' ? '°F' : '°C'})`),
-            plugins: [temperatureBackgroundPlugin]
+            plugins: [temperatureBackgroundPlugin, this.createAnomalyMarkerPlugin()]
         });
     }
 
@@ -946,7 +1811,8 @@ class NestDataViewer {
                         stacked: true
                     }
                 }
-            }
+            },
+            plugins: [this.createAnomalyMarkerPlugin()]
         });
     }
 
@@ -1078,7 +1944,7 @@ class NestDataViewer {
                         },
                         zoom: {
                             wheel: {
-                                enabled: true,
+                                enabled: false,
                                 speed: 0.1,
                             },
                             pinch: {
@@ -1384,6 +2250,9 @@ class NestDataViewer {
         return {
             responsive: true,
             maintainAspectRatio: false,
+            onClick: (event, elements, chart) => {
+                this.handleAnomalyClick(event, chart);
+            },
             interaction: {
                 intersect: false,
                 mode: 'index'
@@ -1425,7 +2294,7 @@ class NestDataViewer {
                     },
                     zoom: {
                         wheel: {
-                            enabled: true,
+                            enabled: false,
                             speed: 0.1,
                         },
                         pinch: {
@@ -1523,6 +2392,8 @@ class NestDataViewer {
         
         this.hideError();
         this.updateStats();
+        this.updateAIDataPreview();
+        this.updateAIActionState();
         
         // Update only non-chart UI elements to avoid zoom conflicts
         // Don't recreate charts as they are already showing the selected range
@@ -1575,6 +2446,50 @@ class NestDataViewer {
         document.getElementById('filterSection').style.display = 'block';
         document.getElementById('statsSection').style.display = 'grid';
         document.getElementById('chartsSection').style.display = 'block';
+        this.setUploadCollapsed(true);
+    }
+
+    buildUploadSummaryText() {
+        const count = this.data.length;
+        if (!count) return 'No data loaded.';
+        const first = this.data[0].timestamp;
+        const last = this.data[this.data.length - 1].timestamp;
+        return `✅ ${count.toLocaleString()} records loaded · ${this.formatAnalysisDate(first)} – ${this.formatAnalysisDate(last)}`;
+    }
+
+    setUploadCollapsed(collapsed) {
+        this.uploadCollapsed = collapsed;
+        const section = document.getElementById('uploadSection');
+        const body = document.getElementById('uploadSectionBody');
+        const summary = document.getElementById('uploadSummary');
+        const toggle = document.getElementById('toggleUploadSection');
+        const hasData = this.data.length > 0;
+
+        if (!section || !body || !summary || !toggle) return;
+
+        // The toggle only makes sense once there is data to hide.
+        toggle.style.display = hasData ? 'inline-block' : 'none';
+
+        if (collapsed && hasData) {
+            body.style.display = 'none';
+            summary.style.display = 'flex';
+            summary.innerHTML = '';
+            const label = document.createElement('span');
+            label.textContent = this.buildUploadSummaryText();
+            const edit = document.createElement('button');
+            edit.type = 'button';
+            edit.className = 'upload-summary-edit';
+            edit.textContent = 'Change file / settings';
+            edit.addEventListener('click', () => this.setUploadCollapsed(false));
+            summary.appendChild(label);
+            summary.appendChild(edit);
+            toggle.textContent = 'Show';
+        } else {
+            this.uploadCollapsed = false;
+            body.style.display = 'block';
+            summary.style.display = 'none';
+            toggle.textContent = 'Hide';
+        }
     }
 
     setupDateFilter() {
@@ -1634,6 +2549,8 @@ class NestDataViewer {
         this.hideError();
         this.updateStats();
         this.createCharts();
+        this.updateAIDataPreview();
+        this.updateAIActionState();
     }
 
     resetDateFilter() {
@@ -1642,6 +2559,8 @@ class NestDataViewer {
         this.hideError();
         this.updateStats();
         this.createCharts();
+        this.updateAIDataPreview();
+        this.updateAIActionState();
         
         // Reset zoom on all charts as well
         setTimeout(() => {
@@ -1670,6 +2589,8 @@ class NestDataViewer {
         this.hideError();
         this.updateStats();
         this.createCharts();
+        this.updateAIDataPreview();
+        this.updateAIActionState();
     }
 }
 

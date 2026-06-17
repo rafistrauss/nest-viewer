@@ -5,7 +5,9 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node server.js"
+    "dev": "node server.js",
+    "dev:debug": "node server.js --debug",
+    "test": "node --test"
   },
   "keywords": ["nest", "hvac", "data", "visualization", "charts"],
   "author": "Nest Data Viewer",
