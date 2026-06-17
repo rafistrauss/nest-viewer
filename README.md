@@ -9,6 +9,7 @@ A beautiful web application to visualize and analyze your exported Nest thermost
 - 🎯 **Target Tracking**: See how your actual temperature compares to heating/cooling targets
 - 💨 **Humidity Monitoring**: Track indoor and outdoor humidity levels
 - ⚡ **Runtime Analysis**: Understand when your HVAC system was actively heating or cooling
+- 🤖 **Optional AI Analysis (Gemini BYOK)**: Explain thermostat events and analyze HVAC performance using your own Gemini API key
 - 📱 **Responsive Design**: Works on desktop, tablet, and mobile devices
 - 🎨 **Modern UI**: Clean, intuitive interface with smooth animations
 
@@ -53,6 +54,7 @@ The application expects JSONL (JSON Lines) format where each line contains a JSO
 ## Technical Details
 
 - **Frontend**: Vanilla JavaScript with Chart.js for visualizations
+- **AI (Optional)**: Browser-to-Gemini REST calls only (no backend proxy, BYOK key in localStorage)
 - **Backend**: Simple Node.js HTTP server
 - **Charts**: Chart.js with time-series support
 - **Styling**: Modern CSS with gradients and animations
@@ -79,6 +81,7 @@ To modify the application:
 
 - Edit `index.html` for UI changes
 - Edit `app.js` for chart logic and data processing
+- Edit `ai/*` for AI provider, prompts, and summarization logic
 - Edit `server.js` for server configuration
 
 The application automatically handles the double-encoded JSON strings in your Nest export data.
