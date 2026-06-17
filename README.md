@@ -5,11 +5,13 @@ A beautiful web application to visualize and analyze your exported Nest thermost
 ## Features
 
 - 📊 **Interactive Charts**: Visualize temperature trends, HVAC targets, humidity levels, and runtime data
+- 📂 **Flexible Uploads**: Upload a single JSONL file, a folder, or a Google Takeout ZIP archive
 - 🌡️ **Temperature Analysis**: Compare indoor vs outdoor temperatures over time
 - 🎯 **Target Tracking**: See how your actual temperature compares to heating/cooling targets
 - 💨 **Humidity Monitoring**: Track indoor and outdoor humidity levels
 - ⚡ **Runtime Analysis**: Understand when your HVAC system was actively heating or cooling
 - 🤖 **Optional AI Analysis (Gemini BYOK)**: Explain thermostat events and analyze HVAC performance using your own Gemini API key
+- 🔄 **Merge + Dedupe Mode**: Merge newly uploaded data into existing data using `interval_start` as the dedupe key
 - 📱 **Responsive Design**: Works on desktop, tablet, and mobile devices
 - 🎨 **Modern UI**: Clean, intuitive interface with smooth animations
 
@@ -26,8 +28,9 @@ A beautiful web application to visualize and analyze your exported Nest thermost
    ```
 
 3. **Upload your data**:
-   - Click "Choose JSONL File" 
-   - Select your exported Nest HVAC runtime data file
+   - Click **Choose File** for `.jsonl`/`.zip`, or **Choose Folder** for an extracted Takeout folder
+   - Select your exported Nest HVAC runtime data
+   - Choose whether new uploads should replace existing data or merge and dedupe
    - The application will automatically parse and visualize your data
 
 ## Data Format
@@ -71,7 +74,7 @@ The application expects JSONL (JSON Lines) format where each line contains a JSO
 
 If you encounter issues:
 
-1. **File won't upload**: Ensure your file is in JSONL format with valid JSON on each line
+1. **File won't upload**: Ensure your upload includes a valid Nest HVAC runtime `.jsonl` file (or a zip containing one)
 2. **Charts not displaying**: Check the browser console for errors and ensure your data has the required fields
 3. **Server won't start**: Make sure port 3000 is available or modify the PORT variable in server.js
 

@@ -23,8 +23,10 @@ class NestDataViewer {
         this.uploadCollapsed = false;
         this.storageKey = 'nestViewer.uploadedData.v1';
         this.settingsKey = 'nestViewer.settings.v1';
-        this.pendingPersist = null;
         this.restoringFromStorage = false;
+        this.uploadMode = 'replace';
+        this.mergeOnNextParse = false;
+        this.uploadWarnings = [];
         this.settings = this.loadSettings();
         this.applyLoadedSettings();
         this.initializeEventListeners();
@@ -36,8 +38,22 @@ class NestDataViewer {
     initializeEventListeners() {
         const fileInput = document.getElementById('fileInput');
         fileInput.addEventListener('change', (event) => {
-            this.handleFileUpload(event.target.files[0]);
+            this.handleUploadFiles(Array.from(event.target.files || []), 'file')
+                .catch(error => this.showError(error.message || 'Failed to process uploaded files.'))
+                .finally(() => {
+                    event.target.value = '';
+                });
         });
+        const folderInput = document.getElementById('folderInput');
+        if (folderInput) {
+            folderInput.addEventListener('change', (event) => {
+                this.handleUploadFiles(Array.from(event.target.files || []), 'folder')
+                    .catch(error => this.showError(error.message || 'Failed to process uploaded folder.'))
+                    .finally(() => {
+                        event.target.value = '';
+                    });
+            });
+        }
 
         // Temperature unit toggle listeners
         const tempUnitInputs = document.querySelectorAll('input[name="tempUnit"]');
@@ -209,6 +225,13 @@ class NestDataViewer {
 
         document.getElementById('toggleUploadSection').addEventListener('click', () => {
             this.setUploadCollapsed(!this.uploadCollapsed);
+        });
+
+        document.querySelectorAll('input[name="uploadMode"]').forEach(input => {
+            input.addEventListener('change', (event) => {
+                this.uploadMode = event.target.value === 'merge' ? 'merge' : 'replace';
+                this.saveSetting('uploadMode', this.uploadMode);
+            });
         });
     }
 
@@ -814,13 +837,24 @@ class NestDataViewer {
                 
             case 'parseComplete':
                 this.updateProgressStep('processing');
-                this.data = data;
+                if (this.mergeOnNextParse && !this.restoringFromStorage && this.data.length > 0) {
+                    this.data = this.mergeWithExistingData(data);
+                } else {
+                    this.data = this.sortDataByTimestamp(data);
+                }
                 this.filteredData = [...this.data];
                 this.parseStats = stats; // Store parsing statistics
                 this.showValidationWarning(); // Show warning if there were skipped lines
                 this.updateAIDataPreview();
                 this.updateAIActionState();
-                this.persistPendingData(); // Save uploaded data to localStorage
+                this.persistCurrentData();
+                this.mergeOnNextParse = false;
+                if (this.uploadWarnings.length > 0) {
+                    this.showUploadNotice(this.uploadWarnings.join(' '));
+                } else {
+                    this.hideUploadNotice();
+                }
+                this.uploadWarnings = [];
                 // Use setTimeout to allow UI to update before heavy processing
                 setTimeout(() => {
                     this.prepareChartData();
@@ -934,7 +968,11 @@ class NestDataViewer {
         });
 
         // Handle dropped files
-        dropZone.addEventListener('drop', (e) => this.handleDrop(e, fileInput), false);
+        dropZone.addEventListener('drop', (e) => {
+            this.handleDrop(e).catch(error => {
+                this.showError(error.message || 'Failed to process dropped files.');
+            });
+        }, false);
 
         // Make the entire drop zone clickable, but not when clicking the label
         dropZone.addEventListener('click', (e) => {
@@ -958,18 +996,66 @@ class NestDataViewer {
         element.classList.remove('dragover');
     }
 
-    handleDrop(e, fileInput) {
-        const dt = e.dataTransfer;
-        const files = dt.files;
-
-        if (files.length > 0) {
-            // Set the file to the input element
-            fileInput.files = files;
-            
-            // Trigger the change event to process the file
-            const event = new Event('change', { bubbles: true });
-            fileInput.dispatchEvent(event);
+    async handleDrop(e) {
+        const files = await this.getDroppedFiles(e.dataTransfer);
+        if (!files.length) {
+            return;
         }
+        await this.handleUploadFiles(files, 'drop');
+    }
+
+    async getDroppedFiles(dataTransfer) {
+        if (!dataTransfer) return [];
+
+        const items = Array.from(dataTransfer.items || []);
+        const hasEntries = items.some(item => item && typeof item.webkitGetAsEntry === 'function');
+
+        if (hasEntries) {
+            const files = [];
+            for (const item of items) {
+                if (!item || typeof item.webkitGetAsEntry !== 'function') continue;
+                const entry = item.webkitGetAsEntry();
+                if (!entry) continue;
+                const entryFiles = await this.readDroppedEntryFiles(entry);
+                files.push(...entryFiles);
+            }
+            if (files.length) {
+                return files;
+            }
+        }
+
+        return Array.from(dataTransfer.files || []);
+    }
+
+    async readDroppedEntryFiles(entry) {
+        if (!entry) return [];
+        if (entry.isFile) {
+            const file = await new Promise((resolve, reject) => {
+                entry.file(resolve, reject);
+            });
+            return file ? [file] : [];
+        }
+        if (!entry.isDirectory) return [];
+
+        const files = [];
+        const reader = entry.createReader();
+        let keepReading = true;
+
+        while (keepReading) {
+            const entries = await new Promise((resolve, reject) => {
+                reader.readEntries(resolve, reject);
+            });
+            if (!entries.length) {
+                keepReading = false;
+                continue;
+            }
+            for (const child of entries) {
+                const childFiles = await this.readDroppedEntryFiles(child);
+                files.push(...childFiles);
+            }
+        }
+
+        return files;
     }
 
     loadSettings() {
@@ -1025,38 +1111,64 @@ class NestDataViewer {
             const el = document.getElementById('hvacAnalysisRange');
             if (el) el.value = s.hvacAnalysisRange;
         }
+
+        if (typeof s.uploadMode === 'string') {
+            this.uploadMode = s.uploadMode === 'merge' ? 'merge' : 'replace';
+            const el = document.querySelector(`input[name="uploadMode"][value="${this.uploadMode}"]`);
+            if (el) el.checked = true;
+        }
     }
 
-    persistPendingData() {
-        if (!this.pendingPersist || this.restoringFromStorage) {
-            // Nothing new to save, or we just restored from storage
+    async persistCurrentData() {
+        if (!this.data.length || this.restoringFromStorage) {
             this.restoringFromStorage = false;
             this.updateClearSavedDataButton();
             return;
         }
 
-        const { text, fileName } = this.pendingPersist;
         try {
-            const payload = JSON.stringify({
-                version: 1,
-                fileName: fileName || 'uploaded.jsonl',
-                savedAt: new Date().toISOString(),
-                text
-            });
+            const payload = await this.buildPersistPayload();
             localStorage.setItem(this.storageKey, payload);
         } catch (error) {
-            // Most commonly a QuotaExceededError for large files
             console.warn('Could not save uploaded data for next visit:', error);
+            this.showError('Unable to save dataset to browser storage. Your data is still available for this session.');
             try {
                 localStorage.removeItem(this.storageKey);
             } catch (_) { /* ignore */ }
         }
 
-        this.pendingPersist = null;
         this.updateClearSavedDataButton();
     }
 
-    restorePersistedData() {
+    async buildPersistPayload() {
+        const serialized = this.data.map(record => ({
+            ...record,
+            timestamp: new Date(record.timestamp).toISOString()
+        }));
+
+        const basePayload = {
+            version: 2,
+            savedAt: new Date().toISOString(),
+            recordCount: serialized.length
+        };
+
+        if (typeof CompressionStream !== 'undefined' && typeof DecompressionStream !== 'undefined') {
+            const compressed = await this.gzipToBase64(JSON.stringify(serialized));
+            return JSON.stringify({
+                ...basePayload,
+                encoding: 'gzip-base64',
+                data: compressed
+            });
+        }
+
+        return JSON.stringify({
+            ...basePayload,
+            encoding: 'json',
+            data: serialized
+        });
+    }
+
+    async restorePersistedData() {
         let payload;
         try {
             payload = localStorage.getItem(this.storageKey);
@@ -1079,7 +1191,7 @@ class NestDataViewer {
             return;
         }
 
-        if (!parsed || typeof parsed.text !== 'string' || !parsed.text.trim()) {
+        if (!parsed) {
             this.clearPersistedData();
             return;
         }
@@ -1088,20 +1200,44 @@ class NestDataViewer {
 
         if (this.isProcessing) return;
 
-        this.restoringFromStorage = true;
-        this.showLoading(true);
-        this.hideError();
-        this.isProcessing = true;
-
         try {
-            if (this.dataWorker) {
-                this.dataWorker.postMessage({
-                    type: 'parseJSONL',
-                    data: { text: parsed.text }
-                });
+            if (parsed.version === 2) {
+                const restoredData = await this.restoreVersionTwoPayload(parsed);
+                if (!restoredData.length) {
+                    throw new Error('Saved data is empty.');
+                }
+
+                this.restoringFromStorage = true;
+                this.showLoading(true);
+                this.hideError();
+                this.isProcessing = true;
+                this.data = this.sortDataByTimestamp(restoredData);
+                this.filteredData = [...this.data];
+                this.parseStats = null;
+                this.hideValidationWarning();
+                this.updateAIDataPreview();
+                this.updateAIActionState();
+                this.prepareChartData();
+                return;
+            }
+
+            if (parsed.version === 1 && typeof parsed.text === 'string' && parsed.text.trim()) {
+                this.restoringFromStorage = true;
+                this.showLoading(true);
+                this.hideError();
+                this.isProcessing = true;
+                if (this.dataWorker) {
+                    this.dataWorker.postMessage({
+                        type: 'parseJSONL',
+                        data: { text: parsed.text }
+                    });
+                } else {
+                    this.data = this.parseJSONL(parsed.text);
+                    this.prepareChartDataFallback();
+                }
+                return;
             } else {
-                this.data = this.parseJSONL(parsed.text);
-                this.prepareChartDataFallback();
+                throw new Error('Saved data format is not supported.');
             }
         } catch (error) {
             console.warn('Failed to restore saved data:', error);
@@ -1112,13 +1248,69 @@ class NestDataViewer {
         }
     }
 
+    async restoreVersionTwoPayload(payload) {
+        if (payload.encoding === 'json' && Array.isArray(payload.data)) {
+            return this.normalizeRestoredRecords(payload.data);
+        }
+
+        if (payload.encoding === 'gzip-base64' && typeof payload.data === 'string') {
+            const json = await this.gunzipFromBase64(payload.data);
+            const parsed = JSON.parse(json);
+            if (!Array.isArray(parsed)) {
+                throw new Error('Compressed saved data is invalid.');
+            }
+            return this.normalizeRestoredRecords(parsed);
+        }
+
+        throw new Error('Unsupported saved data encoding.');
+    }
+
+    normalizeRestoredRecords(records) {
+        return records
+            .map(record => ({
+                ...record,
+                timestamp: new Date(record.timestamp || record.interval_start)
+            }))
+            .filter(record => !Number.isNaN(record.timestamp.getTime()));
+    }
+
+    async gzipToBase64(text) {
+        const stream = new Blob([text]).stream().pipeThrough(new CompressionStream('gzip'));
+        const compressed = await new Response(stream).arrayBuffer();
+        return this.arrayBufferToBase64(compressed);
+    }
+
+    async gunzipFromBase64(base64) {
+        const compressed = this.base64ToArrayBuffer(base64);
+        const stream = new Blob([compressed]).stream().pipeThrough(new DecompressionStream('gzip'));
+        return await new Response(stream).text();
+    }
+
+    arrayBufferToBase64(buffer) {
+        const bytes = new Uint8Array(buffer);
+        let binary = '';
+        const chunkSize = 0x8000;
+        for (let i = 0; i < bytes.length; i += chunkSize) {
+            binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+        }
+        return btoa(binary);
+    }
+
+    base64ToArrayBuffer(base64) {
+        const binary = atob(base64);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) {
+            bytes[i] = binary.charCodeAt(i);
+        }
+        return bytes.buffer;
+    }
+
     clearPersistedData() {
         try {
             localStorage.removeItem(this.storageKey);
         } catch (error) {
             console.warn('Could not clear saved data:', error);
         }
-        this.pendingPersist = null;
         this.updateClearSavedDataButton();
     }
 
@@ -1139,8 +1331,8 @@ class NestDataViewer {
     async loadSampleData() {
         if (this.isProcessing) return;
 
-        // Sample data is not persisted to localStorage
-        this.pendingPersist = null;
+        this.mergeOnNextParse = false;
+        this.hideUploadNotice();
 
         this.showLoading(true);
         this.hideError();
@@ -1174,33 +1366,31 @@ class NestDataViewer {
         }
     }
 
-    async handleFileUpload(file) {
-        if (!file || this.isProcessing) return;
+    async handleUploadFiles(files, source = 'file') {
+        if (!files?.length || this.isProcessing) return;
 
         this.showLoading(true);
         this.hideError();
+        this.hideUploadNotice();
         this.isProcessing = true;
+        this.updateProgressStep('parsing', 'Discovering upload contents...');
+        this.uploadWarnings = [];
 
         try {
-            // Validate file format first
-            const validationError = this.validateFile(file);
-            if (validationError) {
-                throw new Error(validationError);
-            }
-            
-            const text = await this.readFile(file);
-
-            // Stash for persistence once parsing succeeds
-            this.pendingPersist = { text, fileName: file.name };
+            const uploadInput = await this.prepareUploadInput(files, source);
+            const hasExistingData = this.data.length > 0;
+            this.mergeOnNextParse = this.uploadMode === 'merge' && hasExistingData;
+            this.uploadWarnings = uploadInput.warnings || [];
 
             if (this.dataWorker) {
                 this.dataWorker.postMessage({
                     type: 'parseJSONL',
-                    data: { text: text }
+                    data: { text: uploadInput.text }
                 });
             } else {
                 // Fallback for browsers without Worker support
-                this.data = this.parseJSONL(text);
+                this.data = this.parseJSONL(uploadInput.text);
+                this.data = this.mergeOnNextParse ? this.mergeWithExistingData(this.data) : this.sortDataByTimestamp(this.data);
                 this.prepareChartDataFallback();
             }
             
@@ -1208,6 +1398,8 @@ class NestDataViewer {
             this.showError(error.message);
             this.showLoading(false);
             this.isProcessing = false;
+            this.mergeOnNextParse = false;
+            this.uploadWarnings = [];
         }
     }
 
@@ -1221,8 +1413,8 @@ class NestDataViewer {
         
         // Check file extension
         const fileName = file.name.toLowerCase();
-        if (!fileName.endsWith('.jsonl') && !fileName.endsWith('.json')) {
-            return `Invalid file format. Expected .jsonl or .json file, but got ${file.name}. Please upload a file exported from Google Takeout containing your Nest HVAC runtime data.`;
+        if (!fileName.endsWith('.jsonl') && !fileName.endsWith('.json') && !fileName.endsWith('.zip')) {
+            return `Invalid file format. Expected .jsonl or .zip file, but got ${file.name}. Please upload a file exported from Google Takeout containing your Nest HVAC runtime data.`;
         }
         
         // Warn if uploading a .json file (usually wrong format)
@@ -1231,6 +1423,145 @@ class NestDataViewer {
         }
         
         return null; // No validation error
+    }
+
+    async prepareUploadInput(files, source) {
+        const validFiles = files.filter(file => file && file.size > 0);
+        if (!validFiles.length) {
+            throw new Error('No readable files were found in your upload.');
+        }
+
+        const validationErrors = validFiles
+            .map(file => this.validateFile(file))
+            .filter(Boolean);
+        if (validationErrors.length === validFiles.length) {
+            throw new Error(validationErrors[0]);
+        }
+
+        const zipFiles = validFiles.filter(file => file.name.toLowerCase().endsWith('.zip'));
+        if (zipFiles.length > 1) {
+            throw new Error('Please upload one zip archive at a time.');
+        }
+        if (zipFiles.length === 1 && validFiles.length > 1) {
+            throw new Error('Upload a zip archive by itself, or upload files/folders without a zip.');
+        }
+
+        if (zipFiles.length === 1) {
+            this.updateProgressStep('parsing', 'Extracting zip archive...');
+            return this.prepareZipUploadInput(zipFiles[0]);
+        }
+
+        this.updateProgressStep('parsing', source === 'folder' || validFiles.length > 1 ? 'Reading folder contents...' : 'Reading uploaded file...');
+        return this.prepareFileListUploadInput(validFiles);
+    }
+
+    async prepareFileListUploadInput(files) {
+        const jsonlCandidates = files.filter(file => file.name.toLowerCase().endsWith('.jsonl'));
+        const unsupportedFiles = files.filter(file => !file.name.toLowerCase().endsWith('.jsonl'));
+
+        if (!jsonlCandidates.length) {
+            throw new Error('No .jsonl data files were found. Upload the Nest HVAC runtime JSONL file (often named HvacRuntime.jsonl).');
+        }
+
+        const prioritized = this.prioritizeRuntimeFiles(jsonlCandidates);
+        const textParts = [];
+
+        for (const file of prioritized) {
+            const text = await this.readFile(file);
+            if (typeof text === 'string' && text.trim()) {
+                textParts.push(text.trim());
+            }
+        }
+
+        if (!textParts.length) {
+            throw new Error('No readable JSONL content was found in the selected files.');
+        }
+
+        return {
+            text: textParts.join('\n'),
+            warnings: this.buildUnsupportedFileWarnings(unsupportedFiles)
+        };
+    }
+
+    async prepareZipUploadInput(zipFile) {
+        if (!window.JSZip) {
+            throw new Error('Zip support is unavailable because JSZip failed to load. Check your connection and try again.');
+        }
+
+        const zip = await window.JSZip.loadAsync(await this.readFileAsArrayBuffer(zipFile));
+        const entries = [];
+        zip.forEach((relativePath, entry) => {
+            if (!entry.dir) {
+                entries.push(entry);
+            }
+        });
+
+        const jsonlEntries = entries.filter(entry => entry.name.toLowerCase().endsWith('.jsonl'));
+        if (!jsonlEntries.length) {
+            throw new Error('No .jsonl files were found in the zip archive. Use a Google Takeout archive that contains Nest HVAC runtime JSONL data.');
+        }
+
+        const prioritized = this.prioritizeRuntimeFiles(jsonlEntries);
+        const textParts = [];
+
+        for (const entry of prioritized) {
+            const text = await entry.async('string');
+            if (text && text.trim()) {
+                textParts.push(text.trim());
+            }
+        }
+
+        if (!textParts.length) {
+            throw new Error('No readable JSONL content was found in the zip archive.');
+        }
+
+        const unsupported = entries.filter(entry => !entry.name.toLowerCase().endsWith('.jsonl'));
+        return {
+            text: textParts.join('\n'),
+            warnings: this.buildUnsupportedFileWarnings(unsupported.map(entry => ({ name: entry.name })))
+        };
+    }
+
+    prioritizeRuntimeFiles(files) {
+        const rank = (name) => {
+            const lower = name.toLowerCase();
+            if (lower.endsWith('hvacruntime.jsonl')) return 0;
+            if (lower.includes('hvac') && lower.includes('runtime')) return 1;
+            return 2;
+        };
+        return [...files].sort((a, b) => rank(a.name) - rank(b.name));
+    }
+
+    buildUnsupportedFileWarnings(files) {
+        if (!files.length) return [];
+        const preview = files.slice(0, 4).map(file => file.name).join(', ');
+        const more = files.length > 4 ? ` (+${files.length - 4} more)` : '';
+        return [`Ignored unsupported files: ${preview}${more}`];
+    }
+
+    mergeWithExistingData(incomingData) {
+        const deduped = new Map();
+        const addRecord = (record) => {
+            const key = this.getRecordDedupeKey(record);
+            deduped.set(key, record);
+        };
+
+        this.data.forEach(addRecord);
+        incomingData.forEach(addRecord);
+        return this.sortDataByTimestamp(Array.from(deduped.values()));
+    }
+
+    getRecordDedupeKey(record) {
+        const source = record?.interval_start || record?.timestamp;
+        const date = new Date(source);
+        if (Number.isNaN(date.getTime())) {
+            return JSON.stringify(record);
+        }
+        return date.toISOString();
+    }
+
+    sortDataByTimestamp(records) {
+        return [...records].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
     }
 
     prepareChartData() {
@@ -1252,7 +1583,7 @@ class NestDataViewer {
 
         this.updateProgressStep('processing');
         this.filteredData = [...this.data];
-        this.persistPendingData(); // Save uploaded data to localStorage
+        this.persistCurrentData();
 
         // Prepare chart data synchronously (fallback)
         setTimeout(() => {
@@ -1289,6 +1620,15 @@ class NestDataViewer {
             reader.onload = (e) => resolve(e.target.result);
             reader.onerror = () => reject(new Error('Failed to read file'));
             reader.readAsText(file);
+        });
+    }
+
+    readFileAsArrayBuffer(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (e) => resolve(e.target.result);
+            reader.onerror = () => reject(new Error('Failed to read file as binary data'));
+            reader.readAsArrayBuffer(file);
         });
     }
 
@@ -2432,6 +2772,7 @@ class NestDataViewer {
     }
 
     showError(message) {
+        this.hideUploadNotice();
         const error = document.getElementById('error');
         error.textContent = message;
         error.classList.add('show');
@@ -2440,6 +2781,20 @@ class NestDataViewer {
     hideError() {
         const error = document.getElementById('error');
         error.classList.remove('show');
+    }
+
+    showUploadNotice(message) {
+        const notice = document.getElementById('uploadNotice');
+        if (!notice || !message) return;
+        notice.textContent = message;
+        notice.classList.add('show');
+    }
+
+    hideUploadNotice() {
+        const notice = document.getElementById('uploadNotice');
+        if (!notice) return;
+        notice.classList.remove('show');
+        notice.textContent = '';
     }
 
     showSections() {

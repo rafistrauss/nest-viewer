@@ -83,6 +83,7 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
     <style>
         * {
             margin: 0;
@@ -353,6 +354,21 @@
         }
 
         .error.show {
+            display: block;
+        }
+
+        .upload-notice {
+            display: none;
+            background: #eef6ff;
+            color: #1f4b7a;
+            padding: 12px 15px;
+            border-radius: 10px;
+            margin: 14px 0;
+            border: 1px solid #d6e8ff;
+            font-size: 0.92rem;
+        }
+
+        .upload-notice.show {
             display: block;
         }
 
@@ -1296,11 +1312,24 @@
             <div id="uploadSummary" class="upload-summary" style="display: none;"></div>
             <div id="uploadSectionBody">
             <div class="file-input-wrapper" id="dropZone">
-                <input type="file" id="fileInput" class="file-input" accept=".jsonl,.json" />
+                <input type="file" id="fileInput" class="file-input" accept=".jsonl,.json,.zip" />
+                <input type="file" id="folderInput" class="file-input" webkitdirectory directory multiple />
                 <label for="fileInput" class="file-input-label">
-                    📁 Choose JSONL File
+                    📁 Choose File (.jsonl or .zip)
                 </label>
-                <div class="drag-drop-text">or drag and drop your file here</div>
+                <label for="folderInput" class="file-input-label" style="margin-left: 8px;">
+                    📂 Choose Folder
+                </label>
+                <div class="drag-drop-text">or drag and drop a file, folder, or Google Takeout zip</div>
+            </div>
+            <div class="unit-toggle">
+                <label class="toggle-label">When uploading new data:</label>
+                <div class="toggle-switch">
+                    <input type="radio" id="uploadModeReplace" name="uploadMode" value="replace" checked>
+                    <label for="uploadModeReplace">Replace existing data</label>
+                    <input type="radio" id="uploadModeMerge" name="uploadMode" value="merge">
+                    <label for="uploadModeMerge">Merge and dedupe</label>
+                </div>
             </div>
             <div style="margin: 20px 0;">
                 <button id="loadSampleData" class="sample-btn">
@@ -1310,7 +1339,8 @@
                     🗑️ Forget Saved Data
                 </button>
             </div>
-            <p class="info-text">Select your exported Nest HVAC runtime data file (.jsonl format) or try the sample data</p>
+            <p class="info-text">Upload a Nest HVAC `.jsonl` file, the containing folder, or a Google Takeout `.zip` archive.</p>
+            <div id="uploadNotice" class="upload-notice"></div>
             
             <div class="unit-toggle">
                 <label class="toggle-label">Temperature Unit:</label>
@@ -1571,7 +1601,7 @@
 
                 <div class="step">
                     <h3>Step 6: Upload Here</h3>
-                    <p>Upload the JSONL file using the file picker above. The tool will automatically parse and visualize your HVAC runtime data!</p>
+                    <p>Upload the JSONL file, the containing folder, or the original Google Takeout zip archive. The tool will automatically parse and visualize your HVAC runtime data.</p>
                 </div>
 
                 <div class="note">
