@@ -428,8 +428,9 @@ class NestDataViewer {
                 this.setAIStatus('Configure a Gemini API key to enable AI analysis.', 'info');
             } else if (!hasData) {
                 this.setAIStatus('Upload data to enable AI analysis.', 'info');
-            } else if (statusElement && !showingResult) {
-                // Prerequisites met and nothing to report yet — clear stale hints.
+            } else if (statusElement && !showingResult && this.aiStatusType !== 'error') {
+                // Prerequisites met and nothing to report yet — clear stale hints,
+                // but leave any error message from the last request visible.
                 this.setAIStatus('');
             }
         }
@@ -437,6 +438,7 @@ class NestDataViewer {
 
     setAIStatus(message, type = 'info') {
         const statusElement = document.getElementById('aiStatus');
+        this.aiStatusType = message ? type : null;
         statusElement.textContent = message;
         statusElement.style.color = type === 'error' ? '#c0392b' : (type === 'success' ? '#0a7f3f' : '#666');
     }
@@ -449,6 +451,7 @@ class NestDataViewer {
         loading.classList.toggle('active', Boolean(active));
         // While loading, the status line is redundant with the spinner label.
         if (active) {
+            this.aiStatusType = null;
             const statusElement = document.getElementById('aiStatus');
             if (statusElement) statusElement.textContent = '';
         }
