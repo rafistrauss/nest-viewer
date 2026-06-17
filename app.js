@@ -387,20 +387,20 @@ class NestDataViewer {
         const info = document.getElementById('hvacAnalysisInfo');
         if (!info) return;
 
-        const window = this.getHVACAnalysisWindow();
-        if (!window) {
+        const analysisWindow = this.getHVACAnalysisWindow();
+        if (!analysisWindow) {
             info.textContent = 'Upload data to analyze HVAC performance.';
             return;
         }
 
-        const startDate = `<span class="analysis-date">${this.escapeHtml(this.formatAnalysisDate(window.analysisStart))}</span>`;
-        const endDate = `<span class="analysis-date">${this.escapeHtml(this.formatAnalysisDate(window.analysisEnd))}</span>`;
+        const startDate = `<span class="analysis-date">${this.escapeHtml(this.formatAnalysisDate(analysisWindow.analysisStart))}</span>`;
+        const endDate = `<span class="analysis-date">${this.escapeHtml(this.formatAnalysisDate(analysisWindow.analysisEnd))}</span>`;
         const rangeText = `${startDate} – ${endDate}`;
-        const breakdownLabel = this.getBreakdownLabelForSpanDays(window.analysisPeriodDays);
-        const detail = window.truncated
+        const breakdownLabel = this.getBreakdownLabelForSpanDays(analysisWindow.analysisPeriodDays);
+        const detail = analysisWindow.truncated
             ? `Analyzes the most recent ${this.getHVACAnalysisRangeDays()} days of the selected data (${rangeText}).`
             : `Analyzes the selected data (${rangeText}).`;
-        info.innerHTML = `📊 ${detail} ${window.analyzedCount.toLocaleString()} records, summarized ${breakdownLabel}.`;
+        info.innerHTML = `📊 ${detail} ${analysisWindow.analyzedCount.toLocaleString()} records, summarized ${breakdownLabel}.`;
     }
 
     escapeHtml(text) {
@@ -418,12 +418,12 @@ class NestDataViewer {
 
         this.updateHVACAnalysisInfo();
 
-        const window = this.getHVACAnalysisWindow();
-        preview.textContent = records.length && window
+        const analysisWindow = this.getHVACAnalysisWindow();
+        preview.textContent = records.length && analysisWindow
             ? [
-                `- ${window.analyzedCount.toLocaleString()} records from ${this.formatAnalysisDate(window.analysisStart)} to ${this.formatAnalysisDate(window.analysisEnd)}${window.truncated ? ` (most recent ${this.getHVACAnalysisRangeDays()} days)` : ''}`,
+                `- ${analysisWindow.analyzedCount.toLocaleString()} records from ${this.formatAnalysisDate(analysisWindow.analysisStart)} to ${this.formatAnalysisDate(analysisWindow.analysisEnd)}${analysisWindow.truncated ? ` (most recent ${this.getHVACAnalysisRangeDays()} days)` : ''}`,
                 `- Temperatures in ${this.getTemperatureUnitLabel()}`,
-                `- ${this.getBreakdownLabelForSpanDays(window.analysisPeriodDays)} period breakdown of runtime and outdoor temperature`,
+                `- ${this.getBreakdownLabelForSpanDays(analysisWindow.analysisPeriodDays)} period breakdown of runtime and outdoor temperature`,
                 '- Cooling & heating cycle metrics',
                 '- Temperature performance and setpoint metrics'
             ].join('\n')
@@ -796,14 +796,14 @@ class NestDataViewer {
     }
 
     async analyzeHVACPerformance() {
-        const window = this.getHVACAnalysisWindow();
-        if (!window || !window.recordsForAnalysis.length) {
+        const analysisWindow = this.getHVACAnalysisWindow();
+        if (!analysisWindow || !analysisWindow.recordsForAnalysis.length) {
             this.setAIStatus('Upload data before running HVAC analysis.', 'error');
             return;
         }
 
-        const recordsForAnalysis = this.getRecordsInDisplayUnit(window.recordsForAnalysis);
-        const summary = window.NestAI.summarizeHVACData(recordsForAnalysis, window.analysisPeriodDays, {
+        const recordsForAnalysis = this.getRecordsInDisplayUnit(analysisWindow.recordsForAnalysis);
+        const summary = window.NestAI.summarizeHVACData(recordsForAnalysis, analysisWindow.analysisPeriodDays, {
             temperatureUnit: this.getTemperatureUnitLabel()
         });
 
