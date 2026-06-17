@@ -11,11 +11,12 @@ class NestDataViewer {
         this.dataWorker = null;
         this.updateTimeout = null; // For debouncing
         this.parseStats = null; // Track parsing statistics
-        this.aiService = window.NestAI?.AIService ? new window.NestAI.AIService() : null;
+        const nestAI = globalThis.NestAI;
+        this.aiService = nestAI?.AIService ? new nestAI.AIService() : null;
         this.aiRequestController = null;
         this.aiRequestInFlight = false;
         this.aiKeyVisible = false;
-        this.hvacAnalysisPeriodDays = 30;
+        this.hvacAnalysisRange = '30d';
         this.showCoolingTarget = false;
         this.showHeatingTarget = false;
         this.aiAnomalies = [];
@@ -189,6 +190,15 @@ class NestDataViewer {
             this.analyzeHVACPerformance();
         });
 
+        const hvacAnalysisRange = document.getElementById('hvacAnalysisRange');
+        if (hvacAnalysisRange) {
+            hvacAnalysisRange.addEventListener('change', (event) => {
+                this.hvacAnalysisRange = event.target.value || '30d';
+                this.saveSetting('hvacAnalysisRange', this.hvacAnalysisRange);
+                this.updateAIDataPreview();
+            });
+        }
+
         document.getElementById('cancelAIRequest').addEventListener('click', () => {
             this.cancelAIRequest();
         });
@@ -300,25 +310,51 @@ class NestDataViewer {
         });
     }
 
+    getHVACAnalysisRangeDays() {
+        if (this.hvacAnalysisRange === 'all') return null;
+        const value = Number.parseInt((this.hvacAnalysisRange || '').replace('d', ''), 10);
+        return Number.isFinite(value) && value > 0 ? value : 30;
+    }
+
     getHVACAnalysisWindow() {
         const records = this.getDataForAnalysis();
         if (!records.length) return null;
 
         const dataStart = new Date(records[0].timestamp);
         const dataEnd = new Date(records[records.length - 1].timestamp);
-        const analysisStartMs = Math.max(
-            dataStart.getTime(),
-            dataEnd.getTime() - (this.hvacAnalysisPeriodDays * 24 * 60 * 60 * 1000)
-        );
+        const rangeDays = this.getHVACAnalysisRangeDays();
+        const analysisStartMs = rangeDays == null
+            ? dataStart.getTime()
+            : Math.max(dataStart.getTime(), dataEnd.getTime() - (rangeDays * 24 * 60 * 60 * 1000));
+
         const analysisStart = new Date(analysisStartMs);
+        const analysisEnd = dataEnd;
         const truncated = analysisStartMs > dataStart.getTime();
-        let analyzedCount = 0;
-        records.forEach(record => {
+        const recordsForAnalysis = records.filter(record => {
             const time = new Date(record.timestamp).getTime();
-            if (Number.isFinite(time) && time >= analysisStartMs) analyzedCount += 1;
+            return Number.isFinite(time) && time >= analysisStartMs;
         });
 
-        return { dataStart, dataEnd, analysisStart, analysisEnd: dataEnd, truncated, analyzedCount };
+        const spanDays = Math.max(1, Math.ceil((analysisEnd.getTime() - analysisStart.getTime()) / 86400000));
+        return {
+            dataStart,
+            dataEnd,
+            analysisStart,
+            analysisEnd,
+            truncated,
+            analyzedCount: recordsForAnalysis.length,
+            analysisPeriodDays: spanDays,
+            recordsForAnalysis
+        };
+    }
+
+    getBreakdownLabelForSpanDays(spanDays) {
+        const helper = globalThis.NestAI?.getBreakdownGranularityForSpanDays;
+        const granularity = helper ? helper(spanDays) : (spanDays <= 31 ? 'daily' : (spanDays <= 420 ? 'weekly' : 'monthly'));
+        if (granularity === 'daily') return 'daily';
+        if (granularity === 'weekly') return 'weekly';
+        if (granularity === 'monthly') return 'monthly';
+        return 'quarterly';
     }
 
     formatAnalysisDate(date) {
@@ -329,16 +365,21 @@ class NestDataViewer {
         const info = document.getElementById('hvacAnalysisInfo');
         if (!info) return;
 
-        const window = this.getHVACAnalysisWindow();
-        if (!window) {
+        const analysisWindow = this.getHVACAnalysisWindow();
+        if (!analysisWindow) {
             info.textContent = 'Upload data to analyze HVAC performance.';
             return;
         }
 
-        const startDate = `<span class="analysis-date">${this.escapeHtml(this.formatAnalysisDate(window.analysisStart))}</span>`;
-        const endDate = `<span class="analysis-date">${this.escapeHtml(this.formatAnalysisDate(window.analysisEnd))}</span>`;
+        const startDate = `<span class="analysis-date">${this.escapeHtml(this.formatAnalysisDate(analysisWindow.analysisStart))}</span>`;
+        const endDate = `<span class="analysis-date">${this.escapeHtml(this.formatAnalysisDate(analysisWindow.analysisEnd))}</span>`;
         const rangeText = `${startDate} – ${endDate}`;
-        info.innerHTML = `📊 ${detail} ${window.analyzedCount.toLocaleString()} records, summarized over time.`;
+        const breakdownLabel = this.getBreakdownLabelForSpanDays(analysisWindow.analysisPeriodDays);
+        const detail = analysisWindow.truncated
+            ? `Analyzes the most recent ${this.getHVACAnalysisRangeDays()} days of the selected data (${rangeText}).`
+            : `Analyzes the selected data (${rangeText}).`;
+        info.innerHTML = `📊 ${detail} ${analysisWindow.analyzedCount.toLocaleString()} records, summarized ${breakdownLabel}.`;
+    }
 
     escapeHtml(text) {
         return String(text)
@@ -355,12 +396,12 @@ class NestDataViewer {
 
         this.updateHVACAnalysisInfo();
 
-        const window = this.getHVACAnalysisWindow();
-        preview.textContent = records.length && window
+        const analysisWindow = this.getHVACAnalysisWindow();
+        preview.textContent = records.length && analysisWindow
             ? [
-                `- ${window.analyzedCount.toLocaleString()} records from ${this.formatAnalysisDate(window.analysisStart)} to ${this.formatAnalysisDate(window.analysisEnd)}${window.truncated ? ` (most recent ${this.hvacAnalysisPeriodDays} days)` : ''}`,
+                `- ${analysisWindow.analyzedCount.toLocaleString()} records from ${this.formatAnalysisDate(analysisWindow.analysisStart)} to ${this.formatAnalysisDate(analysisWindow.analysisEnd)}${analysisWindow.truncated ? ` (most recent ${this.getHVACAnalysisRangeDays()} days)` : ''}`,
                 `- Temperatures in ${this.getTemperatureUnitLabel()}`,
-                '- Time-bucketed breakdown of runtime and outdoor temperature',
+                `- ${this.getBreakdownLabelForSpanDays(analysisWindow.analysisPeriodDays)} period breakdown of runtime and outdoor temperature`,
                 '- Cooling & heating cycle metrics',
                 '- Temperature performance and setpoint metrics'
             ].join('\n')
@@ -424,11 +465,11 @@ class NestDataViewer {
 
         // Pull out any structured anomalies the AI appended so we can both
         // render clean markdown and annotate the charts.
-        const parser = window.NestAI && window.NestAI.parseAIAnalysis;
+        const parser = globalThis.NestAI?.parseAIAnalysis;
         const parsed = parser ? parser(text) : { markdown: text, anomalies: [] };
         const markdown = parsed.markdown;
 
-        const renderer = window.NestAI && window.NestAI.renderMarkdown;
+        const renderer = globalThis.NestAI?.renderMarkdown;
         rendered.innerHTML = renderer ? renderer(markdown) : '';
         if (!renderer) {
             rendered.textContent = markdown;
@@ -733,14 +774,20 @@ class NestDataViewer {
     }
 
     async analyzeHVACPerformance() {
-        const records = this.getDataForAnalysis();
-        if (!records.length) {
+        const analysisWindow = this.getHVACAnalysisWindow();
+        if (!analysisWindow || !analysisWindow.recordsForAnalysis.length) {
             this.setAIStatus('Upload data before running HVAC analysis.', 'error');
             return;
         }
 
-        const recordsForAnalysis = this.getRecordsInDisplayUnit(records);
-        const summary = window.NestAI.summarizeHVACData(recordsForAnalysis, this.hvacAnalysisPeriodDays, {
+        const recordsForAnalysis = this.getRecordsInDisplayUnit(analysisWindow.recordsForAnalysis);
+        const summarizeHVACData = globalThis.NestAI?.summarizeHVACData;
+        if (!summarizeHVACData) {
+            this.setAIStatus('AI HVAC summarizer is not loaded. Refresh the page and try again.', 'error');
+            return;
+        }
+
+        const summary = summarizeHVACData(recordsForAnalysis, analysisWindow.analysisPeriodDays, {
             temperatureUnit: this.getTemperatureUnitLabel()
         });
 
@@ -968,6 +1015,12 @@ class NestDataViewer {
             this.correlationAggregation = s.correlationAggregation;
             const el = document.querySelector(`input[name="correlationAggregation"][value="${s.correlationAggregation}"]`);
             if (el) el.checked = true;
+        }
+
+        if (typeof s.hvacAnalysisRange === 'string') {
+            this.hvacAnalysisRange = s.hvacAnalysisRange;
+            const el = document.getElementById('hvacAnalysisRange');
+            if (el) el.value = s.hvacAnalysisRange;
         }
     }
 

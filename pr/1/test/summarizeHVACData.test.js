@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { summarizeHVACData } = require('../ai/summarizers/summarizeHVACData');
+const { summarizeHVACData, getBreakdownGranularityForSpanDays } = require('../ai/summarizers/summarizeHVACData');
 
 test('summarizeHVACData returns compact metrics', () => {
     const records = [
@@ -103,8 +103,8 @@ test('summarizeHVACData exposes a period breakdown to preserve trends', () => {
 
 test('summarizeHVACData uses weekly granularity for long spans', () => {
     const records = [];
-    // ~28 days of data, one reading per day, to force weekly bucketing.
-    for (let day = 0; day < 28; day++) {
+    // ~12 weeks of data, one reading per day, to force weekly bucketing.
+    for (let day = 0; day < 84; day++) {
         const date = new Date('2026-06-01T00:00:00Z');
         date.setUTCDate(date.getUTCDate() + day);
         records.push({
@@ -117,12 +117,40 @@ test('summarizeHVACData uses weekly granularity for long spans', () => {
         });
     }
 
-    const result = summarizeHVACData(records, 30);
+    const result = summarizeHVACData(records, 120);
     assert.equal(result.breakdownGranularity, 'weekly');
     assert.ok(result.periodBreakdown.length >= 4);
     assert.ok(result.periodBreakdown.every(bucket => typeof bucket.weekStart === 'string'));
     // Backward-compatible alias is populated for weekly granularity.
     assert.equal(result.weeklyBreakdown.length, result.periodBreakdown.length);
+});
+
+test('summarizeHVACData uses monthly/quarterly buckets for very long spans', () => {
+    const records = [];
+    // About 6 years of daily readings.
+    for (let day = 0; day < 365 * 6; day++) {
+        const date = new Date('2020-01-01T00:00:00Z');
+        date.setUTCDate(date.getUTCDate() + day);
+        records.push({
+            timestamp: date.toISOString(),
+            indoor_temp: 22,
+            outdoor_temp: 28,
+            cooling_time: 300,
+            heating_time: 0,
+            cooling_target: 22
+        });
+    }
+
+    const result = summarizeHVACData(records, 365 * 6);
+    assert.ok(['monthly', 'quarterly'].includes(result.breakdownGranularity));
+    assert.ok(result.breakdownBucketCount <= 60);
+});
+
+test('getBreakdownGranularityForSpanDays adapts to span size', () => {
+    assert.equal(getBreakdownGranularityForSpanDays(10), 'daily');
+    assert.equal(getBreakdownGranularityForSpanDays(365), 'weekly');
+    assert.equal(getBreakdownGranularityForSpanDays(1200), 'monthly');
+    assert.equal(getBreakdownGranularityForSpanDays(5000), 'quarterly');
 });
 
 function round2(value) {
