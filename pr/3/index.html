@@ -1525,6 +1525,16 @@
                 </div>
                 <div style="display: grid; gap: 12px; margin-bottom: 14px;">
                     <div>
+                        <label for="hvacAnalysisRange" style="display: block; margin-bottom: 8px; color: #4b5563; font-size: 0.88rem;">AI analysis range</label>
+                        <select id="hvacAnalysisRange" style="border: 1px solid #d0d7de; border-radius: 8px; padding: 8px 10px; margin-bottom: 10px; font-size: 0.9rem;">
+                            <option value="30d" selected>Most recent 30 days</option>
+                            <option value="90d">Most recent 90 days</option>
+                            <option value="180d">Most recent 6 months</option>
+                            <option value="365d">Most recent 1 year</option>
+                            <option value="all">All selected data</option>
+                        </select>
+                    </div>
+                    <div>
                         <button id="analyzeHVACWithAI" class="sample-btn analyze-btn" type="button">Analyze HVAC Performance</button>
                         <button id="cancelAIRequest" class="filter-btn reset-btn" type="button" style="margin-left: 8px; display: none;">Cancel</button>
                         <div id="hvacAnalysisInfo" style="margin-top: 8px; color: #4b5563; font-size: 0.88rem;"></div>
