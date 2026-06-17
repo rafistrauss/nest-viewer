@@ -158,10 +158,13 @@ class DataProcessor {
     }
 
     static convertTemperature(tempC, targetUnit) {
+        // Preserve null/missing values so charts render a gap instead of a
+        // bogus 32°F point (null * 9/5 + 32 === 32).
+        if (tempC == null || tempC === '' || !Number.isFinite(Number(tempC))) return null;
         if (targetUnit === 'F') {
-            return tempC * 9/5 + 32;
+            return Number(tempC) * 9/5 + 32;
         }
-        return tempC; // Already in Celsius
+        return Number(tempC); // Already in Celsius
     }
 
     static prepareTimeSeriesData(data, temperatureUnit) {
