@@ -1096,7 +1096,6 @@ class NestDataViewer {
             if (el) el.checked = true;
         }
 
-<<<<<<< HEAD
         if (typeof s.hvacAnalysisRange === 'string') {
             this.hvacAnalysisRange = s.hvacAnalysisRange;
             const el = document.getElementById('hvacAnalysisRange');
