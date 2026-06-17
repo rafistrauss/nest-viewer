@@ -330,6 +330,7 @@ class NestDataViewer {
         return records.map(record => {
             const converted = { ...record };
             tempFields.forEach(field => {
+                if (record[field] == null || record[field] === '') return;
                 const value = Number(record[field]);
                 if (Number.isFinite(value)) {
                     converted[field] = this.celsiusToFahrenheit(value);
@@ -2676,11 +2677,13 @@ class NestDataViewer {
 
     // Temperature conversion utilities
     celsiusToFahrenheit(celsius) {
-        return (celsius * 9/5) + 32;
+        if (celsius == null || celsius === '' || !Number.isFinite(Number(celsius))) return null;
+        return (Number(celsius) * 9/5) + 32;
     }
 
     fahrenheitToCelsius(fahrenheit) {
-        return (fahrenheit - 32) * 5/9;
+        if (fahrenheit == null || fahrenheit === '' || !Number.isFinite(Number(fahrenheit))) return null;
+        return (Number(fahrenheit) - 32) * 5/9;
     }
 
     convertTemperature(temp, fromUnit, toUnit) {
@@ -2695,8 +2698,10 @@ class NestDataViewer {
     }
 
     getTemperatureForDisplay(temp) {
-        // Nest data is in Celsius, convert if needed
-        return this.temperatureUnit === 'F' ? this.celsiusToFahrenheit(temp) : temp;
+        // Nest data is in Celsius, convert if needed. Preserve null/missing
+        // values so charts render a gap instead of a bogus 32°F point.
+        if (temp == null || temp === '' || !Number.isFinite(Number(temp))) return null;
+        return this.temperatureUnit === 'F' ? this.celsiusToFahrenheit(temp) : Number(temp);
     }
 
     updateTemperatureUnits() {
