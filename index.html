@@ -1523,6 +1523,16 @@
                     Higher score = less runtime for the same weather demand.
                     <em>This is not a certified SEER/COP rating</em> — Nest data has no energy-use figures, so this reflects runtime efficiency only.
                 </p>
+                <details style="margin-bottom: 14px; background: #f6f8fa; border: 1px solid #e1e4e8; border-radius: 8px; padding: 8px 12px;">
+                    <summary style="cursor: pointer; font-weight: 600; color: #2c3e50; font-size: 0.9rem;">ℹ️ How to read this chart</summary>
+                    <div style="font-size: 0.88rem; color: #444; line-height: 1.55; margin-top: 10px;">
+                        <p style="margin: 0 0 8px;"><strong>The score (0–100):</strong> higher means your system used <em>less</em> runtime to meet the same weather demand. Each point is one time bucket (hour/day/week). Hover a point to see the raw numbers behind it.</p>
+                        <p style="margin: 0 0 8px;"><strong>The math:</strong> efficiency = <code>runtime hours ÷ degree-days</code> (lower is better); the score just rescales that ratio to 0–100 so it's easy to read. A point trending <em>downward</em> over time means efficiency is degrading — a possible sign of a dirty filter, low refrigerant, aging equipment, or a leakier house.</p>
+                        <p style="margin: 0 0 8px;"><strong>Colors &amp; mode:</strong> blue = cooling, orange = heating. In <em>Auto</em>, each bucket is labeled by whichever ran more; use the <em>Cooling</em>/<em>Heating</em> toggle to focus on one.</p>
+                        <p style="margin: 0 0 8px;"><strong>Score baseline:</strong> <em>Relative</em> scores you against your own best/worst periods in view — best for spotting <em>your own</em> trends, but not comparable to other homes. <em>Fixed</em> uses an estimated absolute scale, so it's comparable across homes and over time.</p>
+                        <p style="margin: 0;"><strong>Base temp:</strong> the outdoor temperature at which you need no heating or cooling (the "balance point"). It defines weather demand: each degree the outdoor temp sits <em>above</em> base counts as cooling demand, each degree <em>below</em> counts as heating demand. <strong>65°F is the industry standard</strong> — only change it if your home's real no-HVAC-needed temperature differs (e.g. better insulation or comfort preference), to make the normalization match your house. It only affects the denominator, so it shifts all scores together.</p>
+                    </div>
+                </details>
                 <div class="chart-controls" style="flex-wrap: wrap; gap: 16px;">
                     <div>
                         <label class="control-label">Aggregate by:</label>
@@ -1556,7 +1566,7 @@
                         </div>
                     </div>
                     <div>
-                        <label class="control-label" for="efficiencyBaseTemp">Base temp:</label>
+                        <label class="control-label" for="efficiencyBaseTemp" title="Outdoor temperature at which no heating or cooling is needed. 65°F is the industry standard.">Base temp:</label>
                         <input type="number" id="efficiencyBaseTemp" value="65" step="1" style="width: 70px; border: 1px solid #d0d7de; border-radius: 8px; padding: 6px 8px;">
                         <span id="efficiencyBaseUnit">°F</span>
                     </div>
