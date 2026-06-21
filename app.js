@@ -48,23 +48,23 @@ class NestDataViewer {
         });
         const folderInput = document.getElementById('folderInput');
         if (folderInput) {
-            // webkitdirectory is not functional on Android/iOS mobile browsers
+            // webkitdirectory is not functional on Android/iOS — fall back to a
+            // multi-file picker so users can still select individual .jsonl files.
             const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
             if (isMobile) {
-                folderInput.style.display = 'none';
+                folderInput.removeAttribute('webkitdirectory');
+                folderInput.removeAttribute('directory');
+                folderInput.setAttribute('accept', '.jsonl,.json');
                 const folderLabel = document.querySelector('label[for="folderInput"]');
-                if (folderLabel) folderLabel.style.display = 'none';
-                const dragDropText = document.querySelector('.drag-drop-text');
-                if (dragDropText) dragDropText.textContent = 'or drag and drop a file or Google Takeout zip';
-            } else {
-                folderInput.addEventListener('change', (event) => {
-                    this.handleUploadFiles(Array.from(event.target.files || []), 'folder')
-                        .catch(error => this.showError(error.message || 'Failed to process uploaded folder.'))
-                        .finally(() => {
-                            event.target.value = '';
-                        });
-                });
+                if (folderLabel) folderLabel.textContent = '📂 Choose Files';
             }
+            folderInput.addEventListener('change', (event) => {
+                this.handleUploadFiles(Array.from(event.target.files || []), 'folder')
+                    .catch(error => this.showError(error.message || 'Failed to process uploaded folder.'))
+                    .finally(() => {
+                        event.target.value = '';
+                    });
+            });
         }
 
         // Temperature unit toggle listeners
