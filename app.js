@@ -48,23 +48,32 @@ class NestDataViewer {
         });
         const folderInput = document.getElementById('folderInput');
         if (folderInput) {
-            // webkitdirectory is not functional on Android/iOS — fall back to a
-            // multi-file picker so users can still select individual .jsonl files.
-            const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-            if (isMobile) {
-                folderInput.removeAttribute('webkitdirectory');
-                folderInput.removeAttribute('directory');
-                folderInput.setAttribute('accept', '.jsonl,.json');
-                const folderLabel = document.querySelector('label[for="folderInput"]');
-                if (folderLabel) folderLabel.textContent = '📂 Choose Files';
+            const folderLabel = document.querySelector('label[for="folderInput"]');
+            // Prefer the File System Access API (supported in Chrome for Android 86+
+            // and desktop Chrome/Edge) as it works where webkitdirectory does not.
+            if (folderLabel && typeof window.showDirectoryPicker === 'function') {
+                folderLabel.addEventListener('click', (event) => {
+                    event.preventDefault();
+                    window.showDirectoryPicker({ mode: 'read' })
+                        .then(dirHandle => this.readDirectoryHandleFiles(dirHandle))
+                        .then(files => this.handleUploadFiles(files, 'folder'))
+                        .catch(error => {
+                            if (error.name !== 'AbortError') {
+                                this.showError(error.message || 'Failed to process folder.');
+                            }
+                        });
+                });
+            } else {
+                // Fall back to the hidden webkitdirectory input for browsers that
+                // don't support the File System Access API (Firefox, Safari, etc.).
+                folderInput.addEventListener('change', (event) => {
+                    this.handleUploadFiles(Array.from(event.target.files || []), 'folder')
+                        .catch(error => this.showError(error.message || 'Failed to process uploaded folder.'))
+                        .finally(() => {
+                            event.target.value = '';
+                        });
+                });
             }
-            folderInput.addEventListener('change', (event) => {
-                this.handleUploadFiles(Array.from(event.target.files || []), 'folder')
-                    .catch(error => this.showError(error.message || 'Failed to process uploaded folder.'))
-                    .finally(() => {
-                        event.target.value = '';
-                    });
-            });
         }
 
         // Temperature unit toggle listeners
@@ -1176,6 +1185,19 @@ class NestDataViewer {
             }
         }
 
+        return files;
+    }
+
+    async readDirectoryHandleFiles(dirHandle) {
+        const files = [];
+        for await (const entry of dirHandle.values()) {
+            if (entry.kind === 'file') {
+                files.push(await entry.getFile());
+            } else if (entry.kind === 'directory') {
+                const childFiles = await this.readDirectoryHandleFiles(entry);
+                files.push(...childFiles);
+            }
+        }
         return files;
     }
 
