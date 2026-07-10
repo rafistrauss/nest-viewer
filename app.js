@@ -1,3 +1,52 @@
+// Timezone-aware helpers so charts and aggregation reflect the thermostat's
+// local time (from the data's `time_zone` field) instead of the viewer's
+// browser timezone or UTC. Uses Intl so it works in both the main thread and
+// the data worker without any extra dependency.
+function getZonedParts(ms, timeZone) {
+    const dtf = new Intl.DateTimeFormat('en-US', {
+        timeZone,
+        hourCycle: 'h23',
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit'
+    });
+    const parts = {};
+    for (const p of dtf.formatToParts(ms)) {
+        if (p.type !== 'literal') parts[p.type] = p.value;
+    }
+    return {
+        year: +parts.year, month: +parts.month, day: +parts.day,
+        hour: +parts.hour, minute: +parts.minute, second: +parts.second
+    };
+}
+
+// Offset (ms) of the zone at the given instant: zoneWallClock - utc.
+function getZoneOffsetMs(ms, timeZone) {
+    const p = getZonedParts(ms, timeZone);
+    const asUTC = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second);
+    return asUTC - ms;
+}
+
+// Buckets an instant to the start of its hour/day/week in the given timezone.
+// Returns { key, start } where key uniquely identifies the zone bucket and
+// start is the real UTC instant of the bucket start (for chart display).
+function computeZonedBucket(ms, unit, timeZone) {
+    if (unit !== 'hourly' && unit !== 'daily' && unit !== 'weekly') {
+        return { key: ms, start: ms };
+    }
+    const p = getZonedParts(ms, timeZone);
+    let wallUTC;
+    if (unit === 'hourly') {
+        wallUTC = Date.UTC(p.year, p.month - 1, p.day, p.hour, 0, 0);
+    } else if (unit === 'daily') {
+        wallUTC = Date.UTC(p.year, p.month - 1, p.day, 0, 0, 0);
+    } else { // weekly, Sunday start (matches historical behavior)
+        const dow = new Date(Date.UTC(p.year, p.month - 1, p.day)).getUTCDay();
+        wallUTC = Date.UTC(p.year, p.month - 1, p.day - dow, 0, 0, 0);
+    }
+    const offset = getZoneOffsetMs(ms, timeZone);
+    return { key: wallUTC, start: wallUTC - offset };
+}
+
 class NestDataViewer {
     constructor() {
         this.data = [];
@@ -1871,8 +1920,10 @@ class NestDataViewer {
                 
                 const record = JSON.parse(fixed);
                 
-                // Validate required fields
-                if (record.interval_start && record.indoor_temp !== undefined && record.outdoor_temp !== undefined && record.outdoor_temp !== null) {
+                // Validate required fields. outdoor_temp is optional weather
+                // data (frequently null) and must not disqualify an otherwise
+                // valid record, or its HVAC runtime would be silently dropped.
+                if (record.interval_start && record.indoor_temp !== undefined && record.indoor_temp !== null) {
                     record.timestamp = new Date(record.interval_start);
                     data.push(record);
                 } else {
@@ -2096,7 +2147,8 @@ class NestDataViewer {
                 fill: false,
                 tension: 0.3,
                 pointRadius: 0,
-                pointHoverRadius: 4
+                pointHoverRadius: 4,
+                spanGaps: true
             }
         ];
 
@@ -2241,7 +2293,8 @@ class NestDataViewer {
                         fill: false,
                         tension: 0.3,
                         pointRadius: 0,
-                        pointHoverRadius: 4
+                        pointHoverRadius: 4,
+                        spanGaps: true
                     }
                 ]
             },
@@ -2267,12 +2320,13 @@ class NestDataViewer {
                 type: 'aggregateRuntime',
                 data: {
                     runtimeData: runtimeData,
-                    aggregationType: this.runtimeAggregation
+                    aggregationType: this.runtimeAggregation,
+                    timeZone: this.getDisplayTimeZone()
                 }
             });
         } else {
             // Process synchronously for small datasets
-            const aggregatedRuntimeData = this.aggregateRuntimeData(runtimeData, this.runtimeAggregation);
+            const aggregatedRuntimeData = this.aggregateRuntimeData(runtimeData, this.runtimeAggregation, this.getDisplayTimeZone());
             this.updateRuntimeChartWithData(aggregatedRuntimeData, this.runtimeAggregation);
         }
     }
@@ -2352,12 +2406,13 @@ class NestDataViewer {
                 type: 'aggregateTemperature',
                 data: {
                     temperatureData: correlationData,
-                    aggregationType: this.correlationAggregation
+                    aggregationType: this.correlationAggregation,
+                    timeZone: this.getDisplayTimeZone()
                 }
             });
         } else {
             // Process synchronously for small datasets
-            const aggregatedCorrelationData = this.aggregateTemperatureData(correlationData, this.correlationAggregation);
+            const aggregatedCorrelationData = this.aggregateTemperatureData(correlationData, this.correlationAggregation, this.getDisplayTimeZone());
             this.updateCorrelationChartWithData(aggregatedCorrelationData, this.correlationAggregation);
         }
     }
@@ -2389,6 +2444,7 @@ class NestDataViewer {
                         tension: 0.3,
                         pointRadius: 0,
                         pointHoverRadius: 4,
+                        spanGaps: true,
                         yAxisID: 'y'
                     },
                     {
@@ -2441,9 +2497,8 @@ class NestDataViewer {
                         cornerRadius: 8,
                         displayColors: true,
                         callbacks: {
-                            title: function(tooltipItems) {
-                                const date = new Date(tooltipItems[0].parsed.x);
-                                return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+                            title: (tooltipItems) => {
+                                return this.formatDateTimeInZone(tooltipItems[0].parsed.x);
                             }
                         }
                     },
@@ -2483,6 +2538,9 @@ class NestDataViewer {
                 scales: {
                     x: {
                         type: 'time',
+                        adapters: {
+                            date: { zone: this.getDisplayTimeZone() }
+                        },
                         time: {
                             displayFormats: {
                                 hour: 'MMM dd HH:mm',
@@ -2562,7 +2620,7 @@ class NestDataViewer {
         }
     }
 
-    aggregateRuntimeData(data, aggregationType) {
+    aggregateRuntimeData(data, aggregationType, timeZone) {
         if (aggregationType === '15min') {
             // Return original data for 15-minute intervals
             return data.map(d => ({
@@ -2575,34 +2633,12 @@ class NestDataViewer {
         const aggregated = new Map();
         
         data.forEach(d => {
-            let key;
-            const date = new Date(d.x);
-            
-            switch (aggregationType) {
-                case 'hourly':
-                    // Round to nearest hour
-                    date.setMinutes(0, 0, 0);
-                    key = date.getTime();
-                    break;
-                case 'daily':
-                    // Round to start of day
-                    date.setHours(0, 0, 0, 0);
-                    key = date.getTime();
-                    break;
-                case 'weekly':
-                    // Round to start of week (Sunday)
-                    const dayOfWeek = date.getDay();
-                    date.setDate(date.getDate() - dayOfWeek);
-                    date.setHours(0, 0, 0, 0);
-                    key = date.getTime();
-                    break;
-                default:
-                    key = d.x.getTime();
-            }
+            const ms = d.x instanceof Date ? d.x.getTime() : new Date(d.x).getTime();
+            const { key, start } = computeZonedBucket(ms, aggregationType, timeZone);
             
             if (!aggregated.has(key)) {
                 aggregated.set(key, {
-                    x: new Date(key),
+                    x: new Date(start),
                     coolingTime: 0,
                     heatingTime: 0,
                     count: 0
@@ -2618,7 +2654,7 @@ class NestDataViewer {
         return Array.from(aggregated.values()).sort((a, b) => a.x - b.x);
     }
 
-    aggregateTemperatureData(data, aggregationType) {
+    aggregateTemperatureData(data, aggregationType, timeZone) {
         if (aggregationType === '15min') {
             // Return original data for 15-minute intervals
             return data.map(d => ({
@@ -2632,35 +2668,14 @@ class NestDataViewer {
         const aggregated = new Map();
         
         data.forEach(d => {
-            let key;
-            const date = new Date(d.x);
-            
-            switch (aggregationType) {
-                case 'hourly':
-                    // Round to nearest hour
-                    date.setMinutes(0, 0, 0);
-                    key = date.getTime();
-                    break;
-                case 'daily':
-                    // Round to start of day
-                    date.setHours(0, 0, 0, 0);
-                    key = date.getTime();
-                    break;
-                case 'weekly':
-                    // Round to start of week (Sunday)
-                    const dayOfWeek = date.getDay();
-                    date.setDate(date.getDate() - dayOfWeek);
-                    date.setHours(0, 0, 0, 0);
-                    key = date.getTime();
-                    break;
-                default:
-                    key = d.x.getTime();
-            }
+            const ms = d.x instanceof Date ? d.x.getTime() : new Date(d.x).getTime();
+            const { key, start } = computeZonedBucket(ms, aggregationType, timeZone);
             
             if (!aggregated.has(key)) {
                 aggregated.set(key, {
-                    x: new Date(key),
+                    x: new Date(start),
                     outdoorTemp: 0,
+                    outdoorTempCount: 0,
                     coolingTime: 0,
                     heatingTime: 0,
                     count: 0
@@ -2668,7 +2683,12 @@ class NestDataViewer {
             }
             
             const entry = aggregated.get(key);
-            entry.outdoorTemp += d.outdoorTemp;
+            // Only average valid outdoor temperatures; null/NaN samples (missing
+            // weather data) must not poison the average.
+            if (d.outdoorTemp != null && Number.isFinite(d.outdoorTemp)) {
+                entry.outdoorTemp += d.outdoorTemp;
+                entry.outdoorTempCount++;
+            }
             entry.coolingTime += d.coolingTime;
             entry.heatingTime += d.heatingTime;
             entry.count++;
@@ -2677,7 +2697,7 @@ class NestDataViewer {
         // Calculate averages for temperature
         return Array.from(aggregated.values()).map(entry => ({
             x: entry.x,
-            outdoorTemp: entry.outdoorTemp / entry.count,
+            outdoorTemp: entry.outdoorTempCount > 0 ? entry.outdoorTemp / entry.outdoorTempCount : null,
             coolingTime: entry.coolingTime,
             heatingTime: entry.heatingTime
         })).sort((a, b) => a.x - b.x);
@@ -2767,6 +2787,36 @@ class NestDataViewer {
         }
     }
 
+    // Timezone used for displaying/bucketing data: the thermostat's own
+    // time_zone from the data, falling back to the viewer's browser timezone.
+    getDisplayTimeZone() {
+        const tz = this.data && this.data[0] && this.data[0].time_zone;
+        if (tz && this.isValidTimeZone(tz)) return tz;
+        return (Intl.DateTimeFormat().resolvedOptions().timeZone) || 'UTC';
+    }
+
+    isValidTimeZone(tz) {
+        try {
+            new Intl.DateTimeFormat('en-US', { timeZone: tz });
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    formatDateTimeInZone(ms) {
+        const tz = this.getDisplayTimeZone();
+        try {
+            return new Intl.DateTimeFormat(undefined, {
+                timeZone: tz,
+                year: 'numeric', month: 'short', day: 'numeric',
+                hour: '2-digit', minute: '2-digit'
+            }).format(new Date(ms));
+        } catch (e) {
+            return new Date(ms).toLocaleString();
+        }
+    }
+
     getCommonChartOptions(yAxisLabel) {
         return {
             responsive: true,
@@ -2795,9 +2845,8 @@ class NestDataViewer {
                     cornerRadius: 8,
                     displayColors: true,
                     callbacks: {
-                        title: function(tooltipItems) {
-                            const date = new Date(tooltipItems[0].parsed.x);
-                            return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+                        title: (tooltipItems) => {
+                            return this.formatDateTimeInZone(tooltipItems[0].parsed.x);
                         }
                     }
                 },
@@ -2837,6 +2886,9 @@ class NestDataViewer {
             scales: {
                 x: {
                     type: 'time',
+                    adapters: {
+                        date: { zone: this.getDisplayTimeZone() }
+                    },
                     time: {
                         displayFormats: {
                             hour: 'MMM dd HH:mm',
