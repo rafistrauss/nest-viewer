@@ -77,6 +77,18 @@ test('summarizeHVACData flags counterproductive cooling intervals', () => {
     assert.equal(result.coolingIntervalsTempRose, 1);
 });
 
+test('summarizeHVACData counts staged runtime when legacy fields are zero', () => {
+    const records = [
+        { timestamp: '2026-07-01T00:00:00Z', indoor_temp: 25, cooling_time: 0, cool_stage1_time: 900, heating_time: 0 },
+        { timestamp: '2026-07-01T00:15:00Z', indoor_temp: 24, cooling_time: 0, cool_stage1_time: 900, heating_time: 0 }
+    ];
+
+    const result = summarizeHVACData(records, 30);
+    assert.equal(result.coolingCycleCount, 1);
+    assert.equal(result.avgCoolingCycleMinutes, 30);
+    assert.equal(result.periodBreakdown[0].coolingRuntimeHours, 0.5);
+});
+
 test('summarizeHVACData exposes a period breakdown to preserve trends', () => {
     const records = [
         // Early period: anomalously high runtime in mild weather (problem period)

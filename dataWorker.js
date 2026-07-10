@@ -1,5 +1,20 @@
 // Web Worker for processing large datasets
+try {
+    importScripts('runtime/runtimeUtils.js');
+} catch (error) {
+    // Continue without shared runtime helpers.
+}
+
 class DataProcessor {
+    static getModeRuntimeSeconds(record, mode) {
+        const helper = self.NestRuntimeUtils?.getEffectiveModeRuntimeSeconds;
+        if (typeof helper === 'function') {
+            return helper(record, mode);
+        }
+        const seconds = Number(record?.[`${mode}_time`] || 0);
+        return Number.isFinite(seconds) && seconds > 0 ? seconds : 0;
+    }
+
     static parseJSONLChunk(lines, startIndex, chunkSize) {
         const data = [];
         const endIndex = Math.min(startIndex + chunkSize, lines.length);
@@ -176,8 +191,8 @@ class DataProcessor {
             heatingTarget: this.convertTemperature(d.heating_target, temperatureUnit),
             indoorHumidity: d.indoor_humidity,
             outdoorHumidity: d.outdoor_humidity,
-            coolingTime: d.cooling_time / 60, // Convert to minutes
-            heatingTime: d.heating_time / 60  // Convert to minutes
+            coolingTime: this.getModeRuntimeSeconds(d, 'cooling') / 60, // Convert to minutes
+            heatingTime: this.getModeRuntimeSeconds(d, 'heating') / 60  // Convert to minutes
         }));
     }
 }

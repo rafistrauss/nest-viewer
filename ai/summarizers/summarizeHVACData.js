@@ -1,4 +1,27 @@
 (function (globalScope) {
+    const runtimeUtils = (() => {
+        const fromGlobal = globalScope?.NestRuntimeUtils;
+        if (fromGlobal?.getEffectiveModeRuntimeSeconds) {
+            return fromGlobal;
+        }
+        if (typeof require === 'function') {
+            try {
+                return require('../../runtime/runtimeUtils');
+            } catch (error) {
+                return null;
+            }
+        }
+        return null;
+    })();
+
+    function getModeRuntimeSeconds(record, mode) {
+        if (runtimeUtils?.getEffectiveModeRuntimeSeconds) {
+            return runtimeUtils.getEffectiveModeRuntimeSeconds(record, mode);
+        }
+        const seconds = Number(record?.[`${mode}_time`] || 0);
+        return Number.isFinite(seconds) && seconds > 0 ? seconds : 0;
+    }
+
     /**
      * @typedef {Object} HvacRecord
      * @property {Date|string} timestamp
@@ -43,7 +66,7 @@
         let currentSeconds = 0;
 
         records.forEach((record, index) => {
-            const seconds = Number(record[`${mode}_time`] || 0);
+            const seconds = getModeRuntimeSeconds(record, mode);
             const gapMinutes = index > 0 ? minutesBetween(records[index - 1], record) : 0;
 
             if (currentSeconds > 0 && gapMinutes > gapToleranceMinutes) {
@@ -93,7 +116,7 @@
                 continue;
             }
 
-            const seconds = Number(current[`${mode}_time`] || 0);
+            const seconds = getModeRuntimeSeconds(current, mode);
             if (seconds <= 0) {
                 continue;
             }
@@ -117,7 +140,7 @@
         const targets = [];
 
         records.forEach(record => {
-            const seconds = Number(record[`${mode}_time`] || 0);
+            const seconds = getModeRuntimeSeconds(record, mode);
             const target = Number(record[`${mode}_target`]);
             const indoor = Number(record.indoor_temp);
             if (seconds > 0 && Number.isFinite(target)) {
@@ -175,8 +198,8 @@
         const coolingDrops = cooling.signedRates.filter(rate => rate < 0).map(rate => -rate);
         const outdoor = toFiniteNumbers(records.map(record => record.outdoor_temp));
         const indoor = toFiniteNumbers(records.map(record => record.indoor_temp));
-        const coolingSeconds = records.reduce((sum, record) => sum + Number(record.cooling_time || 0), 0);
-        const heatingSeconds = records.reduce((sum, record) => sum + Number(record.heating_time || 0), 0);
+        const coolingSeconds = records.reduce((sum, record) => sum + getModeRuntimeSeconds(record, 'cooling'), 0);
+        const heatingSeconds = records.reduce((sum, record) => sum + getModeRuntimeSeconds(record, 'heating'), 0);
         const coolingSetpoint = setpointStats(records, 'cooling');
 
         return {

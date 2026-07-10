@@ -1772,8 +1772,8 @@ class NestDataViewer {
                 heatingTarget: this.getTemperatureForDisplay(d.heating_target),
                 indoorHumidity: d.indoor_humidity,
                 outdoorHumidity: d.outdoor_humidity,
-                coolingTime: d.cooling_time / 60,
-                heatingTime: d.heating_time / 60
+                coolingTime: this.getModeRuntimeSeconds(d, 'cooling') / 60,
+                heatingTime: this.getModeRuntimeSeconds(d, 'heating') / 60
             }));
             
             this.updateProgressStep('stats');
@@ -2012,8 +2012,8 @@ class NestDataViewer {
                 heatingTarget: this.getTemperatureForDisplay(d.heating_target),
                 indoorHumidity: d.indoor_humidity,
                 outdoorHumidity: d.outdoor_humidity,
-                coolingTime: d.cooling_time / 60,
-                heatingTime: d.heating_time / 60
+                coolingTime: this.getModeRuntimeSeconds(d, 'cooling') / 60,
+                heatingTime: this.getModeRuntimeSeconds(d, 'heating') / 60
             }));
         }
         
@@ -3054,6 +3054,15 @@ class NestDataViewer {
         const offset = date.getTimezoneOffset();
         const localDate = new Date(date.getTime() - (offset * 60 * 1000));
         return localDate.toISOString().slice(0, 16);
+    }
+
+    getModeRuntimeSeconds(record, mode) {
+        const helper = globalThis.NestRuntimeUtils?.getEffectiveModeRuntimeSeconds;
+        if (typeof helper === 'function') {
+            return helper(record, mode);
+        }
+        const seconds = Number(record?.[`${mode}_time`] || 0);
+        return Number.isFinite(seconds) && seconds > 0 ? seconds : 0;
     }
 
     applyDateFilter() {
