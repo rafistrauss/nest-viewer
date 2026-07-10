@@ -1,0 +1,109 @@
+name: Deploy PR Preview
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+concurrency:
+  group: pr-preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  deploy-preview:
+    name: Deploy PR ${{ github.event.pull_request.number }} preview
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: source
+
+      - name: Checkout main for bootstrapping
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: source-main
+
+      - name: Checkout or create gh-pages branch
+        run: |
+          git clone \
+            "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" \
+            gh-pages
+          cd gh-pages
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          if git ls-remote --exit-code --heads origin gh-pages; then
+            git checkout gh-pages
+          else
+            # gh-pages doesn't exist yet — create it and bootstrap the root from
+            # main so production is never empty when the first PR preview deploys.
+            git checkout --orphan gh-pages
+            git rm -rf . || true
+            rsync -av --exclude='.git' --exclude='pr/' "$GITHUB_WORKSPACE/source-main/" ./
+            touch .nojekyll
+          fi
+
+      - name: Sync PR files to preview subdirectory
+        run: |
+          # Write only to pr/{number}/ — never touch the root or other PR directories.
+          PR_DIR="gh-pages/pr/${{ github.event.pull_request.number }}"
+          mkdir -p "$PR_DIR"
+          rsync -av --exclude='.git' --delete source/ "$PR_DIR/"
+          touch gh-pages/.nojekyll
+          cd gh-pages
+          git add pr/${{ github.event.pull_request.number }}/ .nojekyll
+          if git diff --cached --quiet; then
+            echo "No changes — skipping commit."
+          else
+            git commit -m "Deploy PR #${{ github.event.pull_request.number }} preview"
+            git push origin gh-pages
+          fi
+
+      - name: Comment preview URL on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNumber = ${{ github.event.pull_request.number }};
+            const sha = '${{ github.event.pull_request.head.sha }}'.slice(0, 7);
+            const url = `https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/pr/${prNumber}/`;
+            const marker = '<!-- pr-preview-comment -->';
+
+            const body = [
+              marker,
+              '## 🔍 PR Preview Environment',
+              '',
+              `| | |`,
+              `|---|---|`,
+              `| **Preview URL** | [${url}](${url}) |`,
+              `| **Commit** | \`${sha}\` |`,
+              '',
+              '_This preview is automatically updated on each push and removed when the PR is closed._'
+            ].join('\n');
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const existing = comments.find(c => c.body.includes(marker));
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
+
