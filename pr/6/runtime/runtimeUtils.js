@@ -41,10 +41,24 @@
         return sumFields(record, config.staged);
     }
 
+    function getIntervalDurationSeconds(record) {
+        const start = record?.interval_start ? new Date(record.interval_start).getTime() : NaN;
+        const end = record?.interval_end ? new Date(record.interval_end).getTime() : NaN;
+        if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) {
+            return null;
+        }
+        return (end - start) / 1000;
+    }
+
     function getEffectiveModeRuntimeSeconds(record, mode) {
         const legacySeconds = getLegacyModeRuntimeSeconds(record, mode);
         const stagedSeconds = getStagedModeRuntimeSeconds(record, mode);
-        return Math.max(legacySeconds, stagedSeconds);
+        const effectiveSeconds = Math.max(legacySeconds, stagedSeconds);
+        const intervalDurationSeconds = getIntervalDurationSeconds(record);
+        if (intervalDurationSeconds == null) {
+            return effectiveSeconds;
+        }
+        return Math.min(effectiveSeconds, intervalDurationSeconds);
     }
 
     const api = {
