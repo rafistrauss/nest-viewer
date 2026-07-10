@@ -23,3 +23,15 @@ test('getEffectiveModeRuntimeSeconds uses max of legacy and staged values', () =
 
     assert.equal(getEffectiveModeRuntimeSeconds(record, 'heating'), 900);
 });
+
+test('getEffectiveModeRuntimeSeconds caps runtime to interval duration', () => {
+    const record = {
+        interval_start: '2025-05-29T10:00:00Z',
+        interval_end: '2025-05-29T10:15:00Z',
+        cooling_time: 0,
+        cool_stage1_time: 600,
+        cool_stage2_time: 600
+    };
+
+    assert.equal(getEffectiveModeRuntimeSeconds(record, 'cooling'), 900);
+});
