@@ -15,7 +15,14 @@
     const DEFAULT_GAP_TOLERANCE_MINUTES = 35;
 
     function toFiniteNumbers(values) {
-        return values.map(Number).filter(value => Number.isFinite(value));
+        // Exclude null/undefined/'' explicitly: Number(null) and Number('')
+        // both coerce to 0 (a finite value), which would silently count
+        // missing readings as 0° and corrupt min/average metrics. Missing
+        // outdoor_temp in particular is very common in Nest exports.
+        return values
+            .filter(value => value != null && value !== '')
+            .map(Number)
+            .filter(value => Number.isFinite(value));
     }
 
     function average(values) {
