@@ -52,6 +52,25 @@ test('summarizeHVACData retains outdoor, humidity and setpoint context', () => {
     assert.equal(result.avgIndoorMinusCoolingTarget, 2.5);
 });
 
+test('summarizeHVACData ignores null/missing outdoor temps instead of counting them as 0', () => {
+    // Nest exports frequently include null outdoor_temp readings. These must
+    // not be coerced to 0° (which would drag the average down and pin the
+    // minimum to 0°), otherwise the AI sees impossibly cold outdoor data.
+    const records = [
+        { timestamp: '2026-07-01T00:00:00Z', indoor_temp: 25, outdoor_temp: null, indoor_humidity: null, outdoor_humidity: null, cooling_time: 600, heating_time: 0 },
+        { timestamp: '2026-07-01T00:15:00Z', indoor_temp: 24, outdoor_temp: 88, indoor_humidity: 50, outdoor_humidity: 60, cooling_time: 600, heating_time: 0 },
+        { timestamp: '2026-07-01T00:30:00Z', indoor_temp: 24, outdoor_temp: null, indoor_humidity: null, outdoor_humidity: null, cooling_time: 0, heating_time: 0 },
+        { timestamp: '2026-07-01T00:45:00Z', indoor_temp: 24, outdoor_temp: 92, indoor_humidity: 52, outdoor_humidity: 64, cooling_time: 0, heating_time: 0 }
+    ];
+
+    const result = summarizeHVACData(records, 30);
+    assert.equal(result.minOutdoorTemp, 88);
+    assert.equal(result.maxOutdoorTemp, 92);
+    assert.equal(result.avgOutdoorTemp, 90);
+    assert.equal(result.avgOutdoorHumidity, 62);
+    assert.equal(result.avgIndoorHumidity, 51);
+});
+
 test('summarizeHVACData normalizes cyclesPerDay by actual data span, not nominal window', () => {
     // 1 cooling cycle within 1 hour of data, analysed over a 30-day window.
     const records = [
